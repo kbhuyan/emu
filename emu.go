@@ -6,7 +6,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -59,7 +58,7 @@ func newEmuImpl(dev string, opt *EmuOptions) (Emu, error) {
 	}
 	port, err := serial.Open(dev, mode)
 	if err != nil {
-		return nil, fmt.Errorf("serial open failed: %w", err)
+		return nil, ErrDeviceIO.Errorf("serial open failed: %+v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,20 +80,13 @@ func (e *emuImpl) Start() {
 
 func (e *emuImpl) SendCommand(c Command) error {
 	if command, ok := c.(*messageImpl); ok {
-		time.Sleep(100 * time.Millisecond)
-		cmd := newCommandState()
-		cmd.command = command
-		cmd.Status = CmdPending
-		value, exists := cmdRspMap[command.GetName()]
-		if !exists {
-			return fmt.Errorf("unknown command")
-		} else {
-			cmd.rspName = value
+		if value, exists := cmdRspMap[command.GetName()]; exists {
+			time.Sleep(100 * time.Millisecond)
+			e.cmdState = &commandState{command: command, status: CmdPending, rspName: value}
+			return nil
 		}
-		e.cmdState = cmd
-		return nil
 	}
-	return fmt.Errorf("invalid command type %T", c)
+	return fmt.Errorf("invalid command type %T or %+v", c, c)
 }
 
 func (e *emuImpl) GetResponse() (Message, error) {
@@ -102,9 +94,9 @@ func (e *emuImpl) GetResponse() (Message, error) {
 	case resp := <-e.responses:
 		return resp, nil
 	case <-time.After(e.opt.TimeOut):
-		return nil, fmt.Errorf("response timeout")
+		return nil, ErrTimeOut
 	case <-e.ctx.Done():
-		return nil, fmt.Errorf("context done")
+		return nil, ErrChannelClosed.Errorf("channel closed %+v", e.ctx.Err())
 	}
 }
 
@@ -115,9 +107,9 @@ func (e *emuImpl) GetMessage(names []MessageName) (Message, error) {
 	case resp := <-e.responses:
 		return resp, nil
 	case <-time.After(e.opt.TimeOut):
-		return nil, fmt.Errorf("response timeout")
+		return nil, ErrTimeOut
 	case <-e.ctx.Done():
-		return nil, fmt.Errorf("context done")
+		return nil, ErrChannelClosed.Errorf("channel closed %+v", e.ctx.Err())
 	}
 }
 func (e *emuImpl) Close() {
@@ -131,10 +123,10 @@ func (e *emuImpl) GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption
 
 	cmd := &messageImpl{Name: "get_current_summation_delivered"}
 	if err := e.SendCommand(cmd); err != nil {
-		return nil, fmt.Errorf("command failed: %v", err)
+		return nil, err
 	}
 	if rsp, err := e.GetResponse(); err != nil {
-		return nil, fmt.Errorf("response error: %v", err)
+		return nil, err
 	} else {
 		return GetCumulativeEnergyConsumption(rsp)
 	}
@@ -144,10 +136,10 @@ func (e *emuImpl) GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption
 func (e *emuImpl) GetInstantaneousPowerConsumption() (*InstantaneousPowerConsumption, error) {
 	cmd := &messageImpl{Name: "get_instantaneous_demand"}
 	if err := e.SendCommand(cmd); err != nil {
-		return nil, fmt.Errorf("command failed: %v", err)
+		return nil, err
 	}
 	if rsp, err := e.GetResponse(); err != nil {
-		return nil, fmt.Errorf("response error: %v", err)
+		return nil, err
 	} else {
 		return GetInstantaneousPowerConsumption(rsp)
 	}
@@ -159,7 +151,7 @@ func (e *emuImpl) reader() {
 	for {
 		select {
 		case <-e.ctx.Done():
-			log.Printf("context done")
+			InfoLogger.Printf("context done. %+v", e.ctx.Err())
 			return
 		default:
 			if reader.Buffered() == 0 {
@@ -180,7 +172,7 @@ func (e *emuImpl) reader() {
 			rp.process(line)
 			if rp.state == RspReceived {
 				responseCache[rp.resp.Name] = rp.resp
-				if e.cmdState != nil && e.cmdState.Status == CmdSent {
+				if e.cmdState != nil && e.cmdState.status == CmdSent {
 					//check if response is for the command
 					msg, ok := responseCache[e.cmdState.rspName]
 					if ok && msg != nil {
@@ -217,15 +209,14 @@ func (e *emuImpl) isSendMsgName(n string) bool {
 
 func (e *emuImpl) sendCommand() error {
 
-	if e.cmdState.Status == CmdPending {
+	if e.cmdState.status == CmdPending {
 		xmlCmd := "<Command><Name>" + e.cmdState.command.GetName() + "</Name></Command>"
-		InfoLogger.Printf("sending command: %s", string(xmlCmd))
-		_, err := e.conn.Write([]byte(xmlCmd))
-		if err != nil {
-			e.cmdState.Status = CmdError
-			return fmt.Errorf("write failed: %w", err)
+		DebugLogger.Printf("sending command: %s", string(xmlCmd))
+		if _, err := e.conn.Write([]byte(xmlCmd)); err != nil {
+			e.cmdState.status = CmdError
+			return ErrDeviceWrite.Errorf("error while writing to devive %+v", err)
 		}
-		e.cmdState.Status = CmdSent
+		e.cmdState.status = CmdSent
 	}
 	return nil
 }
@@ -296,13 +287,13 @@ func (c cmdStatus) String() string {
 }
 
 type commandState struct {
-	Status  cmdStatus
+	status  cmdStatus
 	rspName string
 	command *messageImpl
 }
 
 func newCommandState() *commandState {
-	return &commandState{Status: CmdUnknown}
+	return &commandState{status: CmdUnknown}
 }
 
 func newResponseProcessor() *responseProcessor {
@@ -311,7 +302,7 @@ func newResponseProcessor() *responseProcessor {
 
 func (rp *responseProcessor) startResponseTag(line string) (string, bool) {
 	for k := range responseCache {
-		if strings.Contains(line, "<"+k+">") {
+		if strings.HasPrefix(line, "<"+k+">") {
 			return k, true
 		}
 	}
@@ -320,7 +311,7 @@ func (rp *responseProcessor) startResponseTag(line string) (string, bool) {
 
 func (rp *responseProcessor) stopResponseTag(line string) (string, bool) {
 	for k := range responseCache {
-		if strings.Contains(line, "</"+k+">") {
+		if strings.HasPrefix(line, "</"+k+">") {
 			return k, true
 		}
 	}
@@ -332,44 +323,24 @@ func (rp *responseProcessor) getAttrib(line string) (key string, value interface
 		XMLName xml.Name
 		Value   string `xml:",chardata"`
 	}
-	err = xml.Unmarshal([]byte(line), &element)
-	if err != nil {
-		return "", nil, err
+	if err = xml.Unmarshal([]byte(line), &element); err != nil {
+		return "", nil, ErrMsgProc.Errorf("unable to parse xml: %s, %+v", line, err)
 	}
 	key = element.XMLName.Local
 	strValue := element.Value
 	if at, ok := attribTypeMap[key]; ok {
+		var err error = nil
 		switch at {
 		case INT64:
-			if tv, err := strconv.ParseInt(strValue, 0, 64); err != nil {
-				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
-			} else {
-				value = tv
-			}
+			value, err = strconv.ParseInt(strValue, 0, 64)
 		case UINT64:
-			if tv, err := strconv.ParseInt(strValue, 0, 64); err != nil {
-				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
-			} else {
-				value = tv
-			}
+			value, err = strconv.ParseInt(strValue, 0, 64)
 		case UINT32:
-			if tv, err := strconv.ParseInt(strValue, 0, 32); err != nil {
-				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
-			} else {
-				value = tv
-			}
+			value, err = strconv.ParseInt(strValue, 0, 32)
 		case UINT16:
-			if tv, err := strconv.ParseInt(strValue, 0, 16); err != nil {
-				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
-			} else {
-				value = tv
-			}
+			value, err = strconv.ParseInt(strValue, 0, 16)
 		case UINT8:
-			if tv, err := strconv.ParseInt(strValue, 0, 16); err != nil {
-				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
-			} else {
-				value = tv
-			}
+			value, err = strconv.ParseInt(strValue, 0, 16)
 		case BOOLEAN:
 			if strValue == "Y" {
 				value = true
@@ -377,21 +348,24 @@ func (rp *responseProcessor) getAttrib(line string) (key string, value interface
 				value = false
 			}
 		case EPOCH:
-			if tv, err := strconv.ParseInt(strValue, 0, 64); err != nil {
-				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
-			} else {
+			if tv, err := strconv.ParseInt(strValue, 0, 64); err == nil {
 				value = getCorrectTimeStamp(tv)
 			}
 		case STRING:
 			value = strValue
 		default:
-			return "", nil, fmt.Errorf("unable to convert %s's value %s to unknown type %s. %+v", key, strValue, at, err)
+			err = fmt.Errorf("invalid attrib type %s", at)
+		}
+		if err != nil {
+			return "", nil, ErrMsgProc.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
 		}
 	}
 	return key, value, nil
 }
 
 func (rp *responseProcessor) process(line string) {
+	line = strings.TrimLeft(line, " \t")
+	DebugLogger.Println("Processing:", line)
 	tag, ok := rp.startResponseTag(line)
 	if ok {
 		if rp.state == RspPending {
@@ -411,7 +385,6 @@ func (rp *responseProcessor) process(line string) {
 		} else {
 			WarningLogger.Printf("invalid end of response %s received. expecting[%s, %s]. line: %s", tag, rp.resp.GetName(), rp.state, line)
 			rp.state = RspError
-			rp.resp.Name = ""
 		}
 		return
 
@@ -423,14 +396,14 @@ func (rp *responseProcessor) process(line string) {
 		if err != nil {
 			WarningLogger.Printf("abandoning message %s as xml parse error:%v while processing. line: %s", rp.resp.GetName(), err, line)
 			rp.state = RspError
-			rp.resp.Name = ""
 		} else {
 			rp.resp.Attribs[key] = value
 		}
 	} else {
 		WarningLogger.Printf("ignoring as invalid response state %s to receive line: %s", rp.state, line)
-		rp.state = RspError
-		rp.resp.Name = ""
+		if rp.state != RspPending {
+			rp.state = RspError
+		}
 	}
 }
 

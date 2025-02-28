@@ -7,6 +7,15 @@ import (
 	"time"
 )
 
+var (
+	ErrTimeOut       = NewError("TIME_OUT")
+	ErrChannelClosed = NewError("CHAN_CLOSED")
+	ErrDeviceWrite   = NewError("DEVICE_WRITE")
+	ErrDeviceRead    = NewError("DEVICE_READ")
+	ErrDeviceIO      = NewError("DEVICE_IO")
+	ErrMsgProc       = NewError("MESSAGE_PROCESSING")
+)
+
 type LogLevel int
 
 const (

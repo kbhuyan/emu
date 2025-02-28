@@ -104,11 +104,15 @@ func main() {
 
 		sub := []emu.MessageName{emu.TimeCluster, emu.CurrentSummationDelivered, emu.InstantaneousDemand}
 		for {
-			msg, err := device.GetMessage(sub)
-			if err != nil {
-				log.Fatalf("GetMessage failed: %v", err)
+			if msg, err := device.GetMessage(sub); err == nil {
+				processMessage(msg)
+			} else {
+				if err == emu.ErrTimeOut {
+					log.Printf("WARNING: GetMessage timed out: %v", err)
+				} else {
+					log.Fatalf("GetMessage failed: %v", err)
+				}
 			}
-			processMessage(msg)
 		}
 	}()
 
@@ -158,14 +162,14 @@ func processMessage(msg emu.Message) {
 func executeCommand(device emu.Emu, cmd emu.Command) (emu.Message, error) {
 	// Send command
 	if err := device.SendCommand(cmd); err != nil {
-		return nil, fmt.Errorf("command failed: %v", err)
+		return nil, fmt.Errorf("command failed: %w", err)
 	}
 
 	// Get response
 	//rawResp, err := device.ReadResponseSync()
 	rsp, err := device.GetResponse()
 	if err != nil {
-		return nil, fmt.Errorf("response error: %v", err)
+		return nil, fmt.Errorf("response error: %w", err)
 	}
 	return rsp, nil
 }
