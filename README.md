@@ -75,7 +75,9 @@ type InstantaneousPowerConsumption struct {
     MeterMacId  string  // Smart meter MAC address
 }
 
-Emu.GetInstantaneousPowerConsumption() (*InstantaneousPowerConsumption, error)
+if power, err := device.GetInstantaneousPowerConsumption(); err == nil {
+    log.Printf("Power Consumption: %.3f kW", power.Power)
+}
 ```
 
 ### CumulativeEnergyConsumption
@@ -86,8 +88,9 @@ type CumulativeEnergyConsumption struct {
     DeviceMacId string  // EMU-2 MAC address
     MeterMacId  string  // Smart meter MAC address
 }
-
-Emu.GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption, error) 
+if energy, err := device.GetCumulativeEnergyConsumption(); err == nil {
+    log.Printf("Current Cumulative Energy Delivered: %.3fkWh\n", energy.Energy)
+}
 ```
 
 ### Available Commands
