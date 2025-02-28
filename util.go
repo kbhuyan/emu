@@ -1,167 +1,88 @@
 package emu
 
 import (
-	"encoding/xml"
 	"fmt"
 	"math"
 	"reflect"
-	"strconv"
 	"time"
 )
 
-type InstantaneousPowerConsumption struct {
-	TimeStamp   int64
-	Power       float64 //Unit is KW
-	DeviceMacId string
-	MeterMacId  string
-}
-
 func GetInstantaneousPowerConsumption(in Message) (*InstantaneousPowerConsumption, error) {
-	//	log.Printf("message type %T\n", in)
+	DebugLogger.Printf("%+v", in)
 	if msg, ok := in.(*messageImpl); ok {
 		ipc := &InstantaneousPowerConsumption{}
-		value, ok := msg.Attribs["TimeStamp"].(string)
-		if !ok {
+		if ipc.TimeStamp, ok = msg.Attribs["TimeStamp"].(int64); !ok {
 			return nil, fmt.Errorf("TimeStamp not found in message")
 		}
-		ts, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse TimeStamp value: %w", err)
-		}
-		ipc.TimeStamp = getCorrectTimeStamp(ts)
-
-		value, ok = msg.Attribs["Demand"].(string)
-		if !ok {
+		var power, multiplier, divisor, digitsRight int64
+		if power, ok = msg.Attribs["Demand"].(int64); !ok {
 			return nil, fmt.Errorf("demand not found in message")
 		}
-		power, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse power value: %w", err)
-		}
-		value, ok = msg.Attribs["Multiplier"].(string)
-		if !ok {
+		if multiplier, ok = msg.Attribs["Multiplier"].(int64); !ok {
 			return nil, fmt.Errorf("multiplier not found in message")
 		}
-		multiplier, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse multiplier value: %w", err)
-		}
-		value, ok = msg.Attribs["Divisor"].(string)
-		if !ok {
+		if divisor, ok = msg.Attribs["Divisor"].(int64); !ok {
 			return nil, fmt.Errorf("divisor not found in message")
-		}
-		divisor, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse divisor value: %w", err)
-		}
-		value, ok = msg.Attribs["DigitsRight"].(string)
-		if !ok {
-			return nil, fmt.Errorf("DigitsRight not found in message")
-		}
-		digitsRight, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse digitsRight value: %w", err)
 		}
 		if divisor == 0 {
 			return nil, fmt.Errorf("divisor cannot be zero")
 		}
+		if digitsRight, ok = msg.Attribs["DigitsRight"].(int64); !ok {
+			return nil, fmt.Errorf("DigitsRight not found in message")
+		}
 		instaPower := roundToDecimal(float64(power*multiplier)/float64(divisor), int(digitsRight))
 		ipc.Power = instaPower
-		value, ok = msg.Attribs["DeviceMacId"].(string)
-		if !ok {
+		if ipc.DeviceMacId, ok = msg.Attribs["DeviceMacId"].(string); !ok {
 			return nil, fmt.Errorf("DeviceMacId not found in message")
 		}
-		ipc.DeviceMacId = value
-		value, ok = msg.Attribs["MeterMacId"].(string)
-		if !ok {
+
+		if ipc.MeterMacId, ok = msg.Attribs["MeterMacId"].(string); !ok {
 			return nil, fmt.Errorf("MeterMacId not found in message")
 		}
-		ipc.MeterMacId = value
 		return ipc, nil
 	}
 	return nil, fmt.Errorf("failed to cast message to messageImpl")
 }
 
-type CumulativeEnergyConsumption struct {
-	TimeStamp   int64
-	Energy      float64 //Unit is kWh
-	DeviceMacId string
-	MeterMacId  string
-}
-
 func GetCumulativeEnergyConsumption(in Message) (*CumulativeEnergyConsumption, error) {
-	//	log.Printf("message type %T\n", in)
+	DebugLogger.Printf("%+v", in)
 	if msg, ok := in.(*messageImpl); ok {
 		cec := &CumulativeEnergyConsumption{}
 
-		value, ok := msg.Attribs["TimeStamp"].(string)
-		if !ok {
+		if cec.TimeStamp, ok = msg.Attribs["TimeStamp"].(int64); !ok {
 			return nil, fmt.Errorf("TimeStamp not found in message")
 		}
-		ts, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse TimeStamp value: %w", err)
-		}
-		cec.TimeStamp = getCorrectTimeStamp(ts)
+		var delivered, received, multiplier, divisor, digitsRight int64
 
-		value, ok = msg.Attribs["SummationDelivered"].(string)
-		if !ok {
+		if delivered, ok = msg.Attribs["SummationDelivered"].(int64); !ok {
 			return nil, fmt.Errorf("SummationDelivered not found in message")
 		}
-		delivered, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse SummationDelivered value: %w", err)
-		}
-
-		value, ok = msg.Attribs["SummationReceived"].(string)
-		if !ok {
+		if received, ok = msg.Attribs["SummationReceived"].(int64); !ok {
 			return nil, fmt.Errorf("SummationReceived not found in message")
 		}
-		received, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse SummationReceived value: %w", err)
-		}
 
-		value, ok = msg.Attribs["Multiplier"].(string)
-		if !ok {
+		if multiplier, ok = msg.Attribs["Multiplier"].(int64); !ok {
 			return nil, fmt.Errorf("multiplier not found in message")
 		}
-		multiplier, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse multiplier value: %w", err)
-		}
-		value, ok = msg.Attribs["Divisor"].(string)
-		if !ok {
+		if divisor, ok = msg.Attribs["Divisor"].(int64); !ok {
 			return nil, fmt.Errorf("divisor not found in message")
-		}
-		divisor, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse divisor value: %w", err)
-		}
-		value, ok = msg.Attribs["DigitsRight"].(string)
-		if !ok {
-			return nil, fmt.Errorf("DigitsRight not found in message")
-		}
-		digitsRight, err := strconv.ParseInt(value, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse digitsRight value: %w", err)
 		}
 		if divisor == 0 {
 			return nil, fmt.Errorf("divisor cannot be zero")
 		}
+		if digitsRight, ok = msg.Attribs["DigitsRight"].(int64); !ok {
+			return nil, fmt.Errorf("DigitsRight not found in message")
+		}
 		energy := roundToDecimal(float64((delivered-received)*multiplier)/float64(divisor), int(digitsRight))
 		cec.Energy = energy
 
-		value, ok = msg.Attribs["DeviceMacId"].(string)
-		if !ok {
+		if cec.DeviceMacId, ok = msg.Attribs["DeviceMacId"].(string); !ok {
 			return nil, fmt.Errorf("DeviceMacId not found in message")
 		}
-		cec.DeviceMacId = value
-		value, ok = msg.Attribs["MeterMacId"].(string)
-		if !ok {
+
+		if cec.MeterMacId, ok = msg.Attribs["MeterMacId"].(string); !ok {
 			return nil, fmt.Errorf("MeterMacId not found in message")
 		}
-		cec.MeterMacId = value
 		return cec, nil
 	}
 	return nil, fmt.Errorf("failed to cast message to messageImpl")
@@ -189,18 +110,4 @@ func structToMap(obj interface{}) map[string]interface{} {
 		out[field.Name] = fieldValue
 	}
 	return out
-}
-
-func xml2kv(line string) (key string, value string, err error) {
-	var element struct {
-		XMLName xml.Name
-		Value   string `xml:",chardata"`
-	}
-	err = xml.Unmarshal([]byte(line), &element)
-	if err != nil {
-		return "", "", err
-	}
-	key = element.XMLName.Local
-	value = element.Value
-	return key, value, nil
 }

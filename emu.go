@@ -3,9 +3,11 @@ package emu
 import (
 	"bufio"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,12 +15,17 @@ import (
 )
 
 type messageImpl struct {
+	Id      CommandId
 	Name    string
 	Attribs map[string]interface{}
 }
 
 func (m *messageImpl) GetName() string {
 	return m.Name
+}
+
+func (m *messageImpl) CommandId() CommandId {
+	return m.Id
 }
 
 func (m *messageImpl) SetAttrib(key string, value interface{}) {
@@ -31,18 +38,18 @@ func (m *messageImpl) GetAttrib(key string) (interface{}, bool) {
 }
 
 type emuImpl struct {
-	conn io.ReadWriteCloser
-	//	config    EmuConfig
-	responses chan Message
-	ctx       context.Context
-	cancel    context.CancelFunc
-	cmdState  *commandState
-	opt       *EmuOptions
-	sendMsg   bool
+	conn         io.ReadWriteCloser
+	responses    chan Message
+	ctx          context.Context
+	cancel       context.CancelFunc
+	cmdState     *commandState
+	opt          *EmuOptions
+	sendMsg      bool
+	sendMsgNames []MessageName
 }
 
 func newEmuImpl(dev string, opt *EmuOptions) (Emu, error) {
-	initLog(opt.LogWriter)
+	initLog(opt.LogWriter, opt.LogLevel)
 	// Configure serial port
 	mode := &serial.Mode{
 		BaudRate: opt.BaudRate,
@@ -58,9 +65,8 @@ func newEmuImpl(dev string, opt *EmuOptions) (Emu, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &emuImpl{
-		conn: port,
-		//		config:    cfg,
-		responses: make(chan Message, 10),
+		conn:      port,
+		responses: make(chan Message, 1),
 		ctx:       ctx,
 		cancel:    cancel,
 		cmdState:  nil,
@@ -73,19 +79,22 @@ func (e *emuImpl) Start() {
 	go e.reader()
 }
 
-func (e *emuImpl) SendCommand(command Command) error {
-	time.Sleep(100 * time.Millisecond)
-	cmd := newCommandState()
-	cmd.command = command
-	cmd.Status = CmdPending
-	value, exists := cmdRspMap[command.GetName()]
-	if !exists {
-		return fmt.Errorf("unknown command")
-	} else {
-		cmd.rspName = value
+func (e *emuImpl) SendCommand(c Command) error {
+	if command, ok := c.(*messageImpl); ok {
+		time.Sleep(100 * time.Millisecond)
+		cmd := newCommandState()
+		cmd.command = command
+		cmd.Status = CmdPending
+		value, exists := cmdRspMap[command.GetName()]
+		if !exists {
+			return fmt.Errorf("unknown command")
+		} else {
+			cmd.rspName = value
+		}
+		e.cmdState = cmd
+		return nil
 	}
-	e.cmdState = cmd
-	return nil
+	return fmt.Errorf("invalid command type %T", c)
 }
 
 func (e *emuImpl) GetResponse() (Message, error) {
@@ -94,21 +103,54 @@ func (e *emuImpl) GetResponse() (Message, error) {
 		return resp, nil
 	case <-time.After(e.opt.TimeOut):
 		return nil, fmt.Errorf("response timeout")
+	case <-e.ctx.Done():
+		return nil, fmt.Errorf("context done")
 	}
 }
 
-func (e *emuImpl) GetMessage() (Message, error) {
+func (e *emuImpl) GetMessage(names []MessageName) (Message, error) {
 	e.sendMsg = true
+	e.sendMsgNames = names
 	select {
 	case resp := <-e.responses:
 		return resp, nil
 	case <-time.After(e.opt.TimeOut):
 		return nil, fmt.Errorf("response timeout")
+	case <-e.ctx.Done():
+		return nil, fmt.Errorf("context done")
 	}
 }
 func (e *emuImpl) Close() {
+	InfoLogger.Println("closing the emu session.")
 	e.cancel()
+	time.Sleep(closingGracePeriord)
 	e.conn.Close()
+}
+
+func (e *emuImpl) GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption, error) {
+
+	cmd := &messageImpl{Name: "get_current_summation_delivered"}
+	if err := e.SendCommand(cmd); err != nil {
+		return nil, fmt.Errorf("command failed: %v", err)
+	}
+	if rsp, err := e.GetResponse(); err != nil {
+		return nil, fmt.Errorf("response error: %v", err)
+	} else {
+		return GetCumulativeEnergyConsumption(rsp)
+	}
+
+}
+
+func (e *emuImpl) GetInstantaneousPowerConsumption() (*InstantaneousPowerConsumption, error) {
+	cmd := &messageImpl{Name: "get_instantaneous_demand"}
+	if err := e.SendCommand(cmd); err != nil {
+		return nil, fmt.Errorf("command failed: %v", err)
+	}
+	if rsp, err := e.GetResponse(); err != nil {
+		return nil, fmt.Errorf("response error: %v", err)
+	} else {
+		return GetInstantaneousPowerConsumption(rsp)
+	}
 }
 
 func (e *emuImpl) reader() {
@@ -123,11 +165,6 @@ func (e *emuImpl) reader() {
 			if reader.Buffered() == 0 {
 				if rp.state != RspReceiving && e.cmdState != nil {
 					e.sendCommand()
-				} else if rp.state == RspReceiving {
-					//					log.Printf("processing response %s", rp.resp.GetName())
-				} else {
-					//					log.Printf("nothing to do")
-					//	time.Sleep(100 * time.Millisecond)
 				}
 			}
 			line, err := reader.ReadString('\n')
@@ -135,34 +172,46 @@ func (e *emuImpl) reader() {
 				if err == io.EOF {
 					WarningLogger.Printf("EOF: nothing to read")
 					break
+				} else {
+					ErrorLogger.Printf("Read error: %v", err)
 				}
-				ErrorLogger.Printf("Read error: %v", err)
 				break
 			}
 			rp.process(line)
-			line = ""
 			if rp.state == RspReceived {
-				//	log.Printf("message received:%+v", rp.resp)
 				responseCache[rp.resp.Name] = rp.resp
 				if e.cmdState != nil && e.cmdState.Status == CmdSent {
 					//check if response is for the command
 					msg, ok := responseCache[e.cmdState.rspName]
-					if ok {
-						//	log.Printf("response received: %s", msg.GetName())
+					if ok && msg != nil {
 						e.responses <- msg
 						e.cmdState = nil
 					}
 				}
-				if e.sendMsg {
+				if e.sendMsg && e.isSendMsgName(rp.resp.Name) {
 					e.responses <- rp.resp
 					e.sendMsg = false
 				}
 				rp = newResponseProcessor()
 			} else if rp.state == RspError {
-				ErrorLogger.Println("error in processing response")
+				WarningLogger.Printf("Abandoning processing response: [%s, %+v]\n", rp.state, rp.resp)
 				rp = newResponseProcessor()
 			}
 		}
+	}
+}
+
+func (e *emuImpl) isSendMsgName(n string) bool {
+	nm := MessageName(n)
+	if len(e.sendMsgNames) > 0 {
+		for _, name := range e.sendMsgNames {
+			if name == nm {
+				return true
+			}
+		}
+		return false
+	} else {
+		return true
 	}
 }
 
@@ -184,13 +233,32 @@ func (e *emuImpl) sendCommand() error {
 type rspState int
 
 const (
-	RspPending rspState = iota
+	RspPending rspState = iota + 1
 	RspReceiving
 	RspReceived
 	RspError
 	RspTimeout
 	RspUnknown
 )
+
+func (s rspState) String() string {
+	switch s {
+	case RspPending:
+		return "RspPending"
+	case RspReceiving:
+		return "RspReceiving"
+	case RspReceived:
+		return "RspReceived"
+	case RspError:
+		return "RspError"
+	case RspTimeout:
+		return "RspTimeout"
+	case RspUnknown:
+		return "RspUnknown"
+	default:
+		return "Invalid"
+	}
+}
 
 type responseProcessor struct {
 	state rspState
@@ -200,7 +268,7 @@ type responseProcessor struct {
 type cmdStatus int
 
 const (
-	CmdPending cmdStatus = iota
+	CmdPending cmdStatus = iota + 1
 	CmdSent
 	CmdReceived
 	CmdError
@@ -208,10 +276,29 @@ const (
 	CmdUnknown
 )
 
+func (c cmdStatus) String() string {
+	switch c {
+	case CmdPending:
+		return "CmdPending"
+	case CmdSent:
+		return "CmdSent"
+	case CmdReceived:
+		return "CmdReceived"
+	case CmdError:
+		return "CmdError"
+	case CmdTimeout:
+		return "CmdTimeout"
+	case CmdUnknown:
+		return "CmdUnknown"
+	default:
+		return "Invalid"
+	}
+}
+
 type commandState struct {
 	Status  cmdStatus
 	rspName string
-	command Command
+	command *messageImpl
 }
 
 func newCommandState() *commandState {
@@ -219,10 +306,10 @@ func newCommandState() *commandState {
 }
 
 func newResponseProcessor() *responseProcessor {
-	return &responseProcessor{state: RspPending, resp: &messageImpl{}}
+	return &responseProcessor{state: RspPending, resp: &messageImpl{Attribs: make(map[string]interface{})}}
 }
 
-func startResponseTag(line string) (string, bool) {
+func (rp *responseProcessor) startResponseTag(line string) (string, bool) {
 	for k := range responseCache {
 		if strings.Contains(line, "<"+k+">") {
 			return k, true
@@ -231,7 +318,7 @@ func startResponseTag(line string) (string, bool) {
 	return "", false
 }
 
-func stopResponseTag(line string) (string, bool) {
+func (rp *responseProcessor) stopResponseTag(line string) (string, bool) {
 	for k := range responseCache {
 		if strings.Contains(line, "</"+k+">") {
 			return k, true
@@ -239,30 +326,92 @@ func stopResponseTag(line string) (string, bool) {
 	}
 	return "", false
 }
+
+func (rp *responseProcessor) getAttrib(line string) (key string, value interface{}, err error) {
+	var element struct {
+		XMLName xml.Name
+		Value   string `xml:",chardata"`
+	}
+	err = xml.Unmarshal([]byte(line), &element)
+	if err != nil {
+		return "", nil, err
+	}
+	key = element.XMLName.Local
+	strValue := element.Value
+	if at, ok := attribTypeMap[key]; ok {
+		switch at {
+		case INT64:
+			if tv, err := strconv.ParseInt(strValue, 0, 64); err != nil {
+				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
+			} else {
+				value = tv
+			}
+		case UINT64:
+			if tv, err := strconv.ParseInt(strValue, 0, 64); err != nil {
+				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
+			} else {
+				value = tv
+			}
+		case UINT32:
+			if tv, err := strconv.ParseInt(strValue, 0, 32); err != nil {
+				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
+			} else {
+				value = tv
+			}
+		case UINT16:
+			if tv, err := strconv.ParseInt(strValue, 0, 16); err != nil {
+				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
+			} else {
+				value = tv
+			}
+		case UINT8:
+			if tv, err := strconv.ParseInt(strValue, 0, 16); err != nil {
+				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
+			} else {
+				value = tv
+			}
+		case BOOLEAN:
+			if strValue == "Y" {
+				value = true
+			} else {
+				value = false
+			}
+		case EPOCH:
+			if tv, err := strconv.ParseInt(strValue, 0, 64); err != nil {
+				return "", nil, fmt.Errorf("unable to convert %s's value %s to type %s. %+v", key, strValue, at, err)
+			} else {
+				value = getCorrectTimeStamp(tv)
+			}
+		case STRING:
+			value = strValue
+		default:
+			return "", nil, fmt.Errorf("unable to convert %s's value %s to unknown type %s. %+v", key, strValue, at, err)
+		}
+	}
+	return key, value, nil
+}
+
 func (rp *responseProcessor) process(line string) {
-	tag, ok := startResponseTag(line)
+	tag, ok := rp.startResponseTag(line)
 	if ok {
 		if rp.state == RspPending {
 			rp.state = RspReceiving
 			rp.resp.Name = tag
-			rp.resp.Attribs = make(map[string]interface{})
-			//			log.Printf("start:%s", rp.resp.GetName())
 		} else {
-			WarningLogger.Printf("response already in progress, abandoning the previous response %s", rp.resp.Name)
+			WarningLogger.Printf("response for %s was in progress, abandoning. now starting for %s", rp.resp.Name, tag)
 			rp.state = RspReceiving
 			rp.resp.Name = tag
-			rp.resp.Attribs = make(map[string]interface{})
-			//			log.Printf("start:%s", rp.resp.Name)
 		}
 		return
 	}
-	tag, ok = stopResponseTag(line)
+	tag, ok = rp.stopResponseTag(line)
 	if ok {
 		if rp.state == RspReceiving && rp.resp.GetName() == tag {
 			rp.state = RspReceived
 		} else {
-			WarningLogger.Printf("invalid end of response %s received. expecting[%s, %d]", tag, rp.resp.GetName(), rp.state)
+			WarningLogger.Printf("invalid end of response %s received. expecting[%s, %s]. line: %s", tag, rp.resp.GetName(), rp.state, line)
 			rp.state = RspError
+			rp.resp.Name = ""
 		}
 		return
 
@@ -270,18 +419,52 @@ func (rp *responseProcessor) process(line string) {
 	if rp.state == RspReceiving {
 		//parse xml element from the line with <key>vale</key>
 		//add element and value to the response map
-		key, value, err := xml2kv(line)
+		key, value, err := rp.getAttrib(line)
 		if err != nil {
-			ErrorLogger.Printf("xml parse error:[%s] %v", line, err)
-			return
+			WarningLogger.Printf("abandoning message %s as xml parse error:%v while processing. line: %s", rp.resp.GetName(), err, line)
+			rp.state = RspError
+			rp.resp.Name = ""
+		} else {
+			rp.resp.Attribs[key] = value
 		}
-		rp.resp.Attribs[key] = value
 	} else {
-		ErrorLogger.Printf("invalid response status %d to receive line: %s", rp.state, line)
+		WarningLogger.Printf("ignoring as invalid response state %s to receive line: %s", rp.state, line)
+		rp.state = RspError
+		rp.resp.Name = ""
 	}
 }
 
-// type Element struct {
-// 	XMLName xml.Name
-// 	Value   string `xml:",chardata"`
-// }
+func (rp *responseProcessor) processv2(line string) {
+	//if state is RspReceiving then look for stopResponseTag and attributes
+	//else ignore line as it start to receive in the middle of an response
+	switch rp.state {
+	case RspPending:
+		if tag, ok := rp.startResponseTag(line); ok {
+			rp.state = RspReceiving
+			rp.resp.Name = tag
+		} else {
+			WarningLogger.Printf("starting to receive in the middle of the message, ignoring. line: %s", line)
+		}
+	case RspReceiving:
+		if tag, ok := rp.stopResponseTag(line); ok {
+			if rp.resp.GetName() == tag {
+				rp.state = RspReceived
+			} else {
+				WarningLogger.Printf("invalid end of response %s received. expecting[%s, %+v]. line: %s", tag, rp.resp.GetName(), rp.state, line)
+				rp.state = RspError
+			}
+		} else {
+			//parse xml element from the line with <key>vale</key>
+			//add key and value to the response Attribs[key] = value
+			key, value, err := rp.getAttrib(line)
+			if err != nil {
+				WarningLogger.Printf("abandoning message %s as xml parse error:%v while processing. line: %s", rp.resp.GetName(), err, line)
+				rp.state = RspError
+			} else {
+				rp.resp.Attribs[key] = value
+			}
+		}
+	default:
+		ErrorLogger.Printf("invalid response state %+v to receive. line: %s", rp.state, line)
+	}
+}

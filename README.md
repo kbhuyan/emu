@@ -45,29 +45,13 @@ func main() {
     
     // Start the device communication
     device.Start()
-
-    // Get instantaneous power demand
-    cmd, _ := emu.NewCommand("get_instantaneous_demand")
-    device.SendCommand(cmd)
-    
-    msg, err := device.GetResponse()
-    if err != nil {
-        log.Fatalf("Error: %v", err)
-    }
     
     // Process the power consumption data
-    if power, err := emu.GetInstantaneousPowerConsumption(msg); err == nil {
+    if power, err := device.GetInstantaneousPowerConsumption(); err == nil {
         log.Printf("Power Consumption: %v kW", power.Power)
     }
 }
 ```
-
-### Available Commands
-
-- `get_device_info` - Device manufacturer and version info
-- `get_network_info` - MAC addresses and connection status
-- `get_current_summation` - Total energy consumption
-- `get_instantaneous_demand` - Current power demand
 
 ### Configuration Options
 
@@ -76,6 +60,7 @@ emu.NewEmu("/dev/ttyACM1",
     emu.WithBaudRate(115200),    // Default: 115200
     emu.WithTimeOut(15*time.Second), // Default: 15s
     emu.WithLogWriter(os.Stdout), // Default: os.Stdout
+    emu.WithLoggingLevel(emu.LOG_WARNING) //Default: emu.LOG_WARNING
 )
 ```
 
@@ -89,6 +74,8 @@ type InstantaneousPowerConsumption struct {
     DeviceMacId string  // EMU-2 MAC address
     MeterMacId  string  // Smart meter MAC address
 }
+
+Emu.GetInstantaneousPowerConsumption() (*InstantaneousPowerConsumption, error)
 ```
 
 ### CumulativeEnergyConsumption
@@ -99,6 +86,36 @@ type CumulativeEnergyConsumption struct {
     DeviceMacId string  // EMU-2 MAC address
     MeterMacId  string  // Smart meter MAC address
 }
+
+Emu.GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption, error) 
+```
+
+### Available Commands
+
+- `emu.RESTART`				- restarts the emu-2 device
+- `emu.GET_DEVICE_INFO`		- gets the basic emu-2 device info HW/SW version, make/model etc.
+- `emu.GET_TIME`			- gets the time (local and UTC) on the emu-2 as sync with the smart energy meter
+- `emu.GET_CONN_STATUS`		- gets the current connection status with the smart energy meter`
+
+```go
+    if cmd, err := emu.NewCommand(emu.RESTART); err == nil {
+        if err := device.SendCommand(cmd); err == nil {
+            // Get response
+            if rsp, err := device.GetResponse(); err == nil {
+               fmt.Printf("Response %+v", rsp)
+            }
+	    }
+    }
+```
+
+### Asyncronous Message Reception
+```go
+    subscribedMessages := []emu.MessageName{emu.CurrentSummationDelivered, emu.InstantaneousDemand}
+    for {
+        if msg, err := device.GetMessage(subscribedMessages); err == nil {
+            fmt.Printf("Message %+v", msg)
+        }
+    }
 ```
 
 ## Contributing
