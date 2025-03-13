@@ -113,12 +113,11 @@ if energy, err := device.GetCumulativeEnergyConsumption(); err == nil {
 
 ### Asyncronous Message Reception
 ```go
-    subscribedMessages := []emu.MessageName{emu.CurrentSummationDelivered, emu.InstantaneousDemand}
-    for {
-        if msg, err := device.GetMessage(subscribedMessages); err == nil {
-            fmt.Printf("Message %+v", msg)
-        }
-    }
+	sub := []emu.MessageName{emu.InstantaneousPower, emu.CumulativeEnergy}
+	var handler = func(m emu.Message) {
+		log.Printf("Received %+v", m)
+	}
+	device.Subscribe(sub, &handler)
 ```
 
 ## Contributing
