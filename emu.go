@@ -6,45 +6,70 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.bug.st/serial"
 )
 
 type messageImpl struct {
-	Id      CommandId
-	Name    string
-	Attribs map[string]interface{}
+	Name    emuMessageName
+	Attribs map[emuMessageAttribute]interface{}
 }
 
 func (m *messageImpl) GetName() string {
-	return m.Name
+	return string(m.Name)
 }
-
-func (m *messageImpl) CommandId() CommandId {
-	return m.Id
-}
-
 func (m *messageImpl) SetAttrib(key string, value interface{}) {
-	m.Attribs[key] = value
+	m.Attribs[emuMessageAttribute(key)] = value
 }
 
 func (m *messageImpl) GetAttrib(key string) (interface{}, bool) {
+	value, ok := m.Attribs[emuMessageAttribute(key)]
+	return value, ok
+}
+
+func (m *messageImpl) getApiMessageName() (MessageName, bool) {
+	mn := MessageName(string(m.Name))
+	if slices.Contains(apiMessageNames, mn) {
+		return mn, true
+	}
+	return mn, false
+}
+
+type commandImpl struct {
+	Id      CommandId
+	Name    emuCommandName
+	Attribs map[string]interface{}
+}
+
+func (m *commandImpl) CommandId() CommandId {
+	return m.Id
+}
+func (m *commandImpl) GetName() string {
+	return string(m.Name)
+}
+func (m *commandImpl) SetAttrib(key string, value interface{}) {
+	m.Attribs[key] = value
+}
+
+func (m *commandImpl) GetAttrib(key string) (interface{}, bool) {
 	value, ok := m.Attribs[key]
 	return value, ok
 }
 
 type emuImpl struct {
-	conn         io.ReadWriteCloser
-	responses    chan Message
-	ctx          context.Context
-	cancel       context.CancelFunc
-	cmdState     *commandState
-	opt          *EmuOptions
-	sendMsg      bool
-	sendMsgNames []MessageName
+	conn          io.ReadWriteCloser
+	responses     chan Message
+	ctx           context.Context
+	cancel        context.CancelFunc
+	cmdState      *commandState
+	opt           *EmuOptions
+	subscriptions map[MessageName]map[*func(Message)]bool
+	lck           sync.RWMutex
 }
 
 func newEmuImpl(dev string, opt *EmuOptions) (Emu, error) {
@@ -64,13 +89,13 @@ func newEmuImpl(dev string, opt *EmuOptions) (Emu, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &emuImpl{
-		conn:      port,
-		responses: make(chan Message, 1),
-		ctx:       ctx,
-		cancel:    cancel,
-		cmdState:  nil,
-		opt:       opt,
-		sendMsg:   false,
+		conn:          port,
+		responses:     make(chan Message, 1),
+		ctx:           ctx,
+		cancel:        cancel,
+		cmdState:      nil,
+		opt:           opt,
+		subscriptions: make(map[MessageName]map[*func(Message)]bool),
 	}, nil
 }
 
@@ -79,10 +104,10 @@ func (e *emuImpl) Start() {
 }
 
 func (e *emuImpl) SendCommand(c Command) error {
-	if command, ok := c.(*messageImpl); ok {
-		if value, exists := cmdRspMap[command.GetName()]; exists {
+	if rspName, ok := CommandResponseMap[c.CommandId()]; ok {
+		if _, ok := c.(*commandImpl); ok {
 			time.Sleep(100 * time.Millisecond)
-			e.cmdState = &commandState{command: command, status: CmdPending, rspName: value}
+			e.cmdState = &commandState{command: c, status: CmdPending, rspName: rspName}
 			return nil
 		}
 	}
@@ -100,18 +125,57 @@ func (e *emuImpl) GetResponse() (Message, error) {
 	}
 }
 
-func (e *emuImpl) GetMessage(names []MessageName) (Message, error) {
-	e.sendMsg = true
-	e.sendMsgNames = names
-	select {
-	case resp := <-e.responses:
-		return resp, nil
-	case <-time.After(e.opt.TimeOut):
-		return nil, ErrTimeOut
-	case <-e.ctx.Done():
-		return nil, ErrChannelClosed.Errorf("channel closed %+v", e.ctx.Err())
+func emuCurrentSummationDelivered2CumulativeEnergy(m *messageImpl) (Message, error) {
+	return GetCumulativeEnergyConsumption(m)
+}
+
+func emuInstantaneousDemand2InstantaneousPower(m *messageImpl) (Message, error) {
+	return GetInstantaneousPowerConsumption(m)
+}
+
+func convertApiMessage(m *messageImpl) (Message, error) {
+	if processor, ok := messageProcessorMap[m.Name]; ok {
+		return processor(m)
+	}
+
+	if _, ok := m.getApiMessageName(); ok {
+		return m, nil
+	}
+	return nil, fmt.Errorf("message %s cannot be connverted as AIP message", m.GetName())
+}
+
+func (e *emuImpl) Subscribe(names []MessageName, handler *func(Message)) error {
+	DebugLogger.Printf("Messages: %+v func %v", names, handler)
+	e.lck.Lock()
+	defer e.lck.Unlock()
+	nSub := 0
+	for _, name := range names {
+		if slices.Contains(apiMessageNames, name) {
+			if _, ok := e.subscriptions[name]; !ok {
+				e.subscriptions[name] = make(map[*func(Message)]bool)
+			}
+			e.subscriptions[name][handler] = true
+			nSub += 1
+		} else {
+			WarningLogger.Printf("Ignoring invalid API MessageName %s", name)
+		}
+	}
+	if nSub == 0 {
+		return fmt.Errorf("empty or invalid message names")
+	}
+	return nil
+}
+
+func (e *emuImpl) Unsubscribe(names []MessageName, handler *func(Message)) {
+	e.lck.Lock()
+	defer e.lck.Unlock()
+	for _, name := range names {
+		if sub, ok := e.subscriptions[name]; ok {
+			delete(sub, handler)
+		}
 	}
 }
+
 func (e *emuImpl) Close() {
 	InfoLogger.Println("closing the emu session.")
 	e.cancel()
@@ -121,23 +185,20 @@ func (e *emuImpl) Close() {
 
 func (e *emuImpl) GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption, error) {
 
-	cmd := &messageImpl{Name: "get_current_summation_delivered"}
-	if err := e.SendCommand(cmd); err != nil {
-		return nil, err
-	}
+	cmd := &commandImpl{Name: emuGetCurrentSummationDelivered}
+	time.Sleep(100 * time.Millisecond)
+	e.cmdState = &commandState{command: cmd, status: CmdPending, rspName: MessageName(string(emuCurrentSummationDelivered))}
 	if rsp, err := e.GetResponse(); err != nil {
 		return nil, err
 	} else {
 		return GetCumulativeEnergyConsumption(rsp)
 	}
-
 }
 
-func (e *emuImpl) GetInstantaneousPowerConsumption() (*InstantaneousPowerConsumption, error) {
-	cmd := &messageImpl{Name: "get_instantaneous_demand"}
-	if err := e.SendCommand(cmd); err != nil {
-		return nil, err
-	}
+func (e *emuImpl) GetInstantaneousPowerConsumption() (*InstantaneousPowerDemand, error) {
+	cmd := &commandImpl{Name: emuGetInstantaneousDemand}
+	time.Sleep(100 * time.Millisecond)
+	e.cmdState = &commandState{command: cmd, status: CmdPending, rspName: MessageName(string(emuInstantaneousDemand))}
 	if rsp, err := e.GetResponse(); err != nil {
 		return nil, err
 	} else {
@@ -171,18 +232,26 @@ func (e *emuImpl) reader() {
 			}
 			rp.process(line)
 			if rp.state == RspReceived {
-				responseCache[rp.resp.Name] = rp.resp
+				//For internal commands e.g. Demand and Contineous etc
 				if e.cmdState != nil && e.cmdState.status == CmdSent {
 					//check if response is for the command
-					msg, ok := responseCache[e.cmdState.rspName]
-					if ok && msg != nil {
-						e.responses <- msg
+					if e.cmdState.rspName == MessageName(rp.resp.GetName()) {
+						e.responses <- rp.resp
 						e.cmdState = nil
 					}
 				}
-				if e.sendMsg && e.isSendMsgName(rp.resp.Name) {
-					e.responses <- rp.resp
-					e.sendMsg = false
+				if m, err := convertApiMessage(rp.resp); err == nil {
+					go e.sendToSubscribers(m)
+					//send messages to subscriber
+					if e.cmdState != nil && e.cmdState.status == CmdSent {
+						//check if response is for the command
+						if e.cmdState.rspName == MessageName(m.GetName()) {
+							e.responses <- m
+							e.cmdState = nil
+						}
+					}
+				} else {
+					WarningLogger.Printf("Ignoring, %s cannot be processed for API message", rp.resp.GetName())
 				}
 				rp = newResponseProcessor()
 			} else if rp.state == RspError {
@@ -193,32 +262,40 @@ func (e *emuImpl) reader() {
 	}
 }
 
-func (e *emuImpl) isSendMsgName(n string) bool {
-	nm := MessageName(n)
-	if len(e.sendMsgNames) > 0 {
-		for _, name := range e.sendMsgNames {
-			if name == nm {
-				return true
-			}
+func (e *emuImpl) sendToSubscribers(m Message) {
+	if sub, ok := e.subscriptions[MessageName(m.GetName())]; ok {
+		for hndlr := range sub {
+			(*hndlr)(m)
 		}
-		return false
-	} else {
-		return true
 	}
 }
 
 func (e *emuImpl) sendCommand() error {
 
 	if e.cmdState.status == CmdPending {
-		xmlCmd := "<Command><Name>" + e.cmdState.command.GetName() + "</Name></Command>"
+		//		if cid, ok := cmdIdcmdMap[e.cmdState.command.CommandId()]; ok {
+		xmlCmd := "<Command><Name>" + string(e.cmdState.command.(*commandImpl).Name) + "</Name></Command>"
 		DebugLogger.Printf("sending command: %s", string(xmlCmd))
 		if _, err := e.conn.Write([]byte(xmlCmd)); err != nil {
 			e.cmdState.status = CmdError
 			return ErrDeviceWrite.Errorf("error while writing to devive %+v", err)
 		}
 		e.cmdState.status = CmdSent
+		//		}
 	}
+	//if response is just an Ack just send the Ack
+	go e.responseAck()
 	return nil
+}
+func (e *emuImpl) responseAck() {
+	if e.cmdState != nil && e.cmdState.status == CmdSent {
+		if mn, ok := CommandResponseMap[e.cmdState.command.CommandId()]; ok {
+			if mn == Ack {
+				e.responses <- &messageImpl{Name: emuAck, Attribs: map[emuMessageAttribute]interface{}{emuStatus: "Success"}}
+				e.cmdState = nil
+			}
+		}
+	}
 }
 
 type rspState int
@@ -288,8 +365,8 @@ func (c cmdStatus) String() string {
 
 type commandState struct {
 	status  cmdStatus
-	rspName string
-	command *messageImpl
+	rspName MessageName
+	command Command
 }
 
 func newCommandState() *commandState {
@@ -297,28 +374,28 @@ func newCommandState() *commandState {
 }
 
 func newResponseProcessor() *responseProcessor {
-	return &responseProcessor{state: RspPending, resp: &messageImpl{Attribs: make(map[string]interface{})}}
+	return &responseProcessor{state: RspPending, resp: &messageImpl{Attribs: make(map[emuMessageAttribute]interface{})}}
 }
 
-func (rp *responseProcessor) startResponseTag(line string) (string, bool) {
-	for k := range responseCache {
-		if strings.HasPrefix(line, "<"+k+">") {
+func (rp *responseProcessor) startResponseTag(line string) (emuMessageName, bool) {
+	for _, k := range emuResponses {
+		if strings.HasPrefix(line, "<"+string(k)+">") {
 			return k, true
 		}
 	}
 	return "", false
 }
 
-func (rp *responseProcessor) stopResponseTag(line string) (string, bool) {
-	for k := range responseCache {
-		if strings.HasPrefix(line, "</"+k+">") {
+func (rp *responseProcessor) stopResponseTag(line string) (emuMessageName, bool) {
+	for _, k := range emuResponses {
+		if strings.HasPrefix(line, "</"+string(k)+">") {
 			return k, true
 		}
 	}
 	return "", false
 }
 
-func (rp *responseProcessor) getAttrib(line string) (key string, value interface{}, err error) {
+func (rp *responseProcessor) getAttrib(line string) (key emuMessageAttribute, value interface{}, err error) {
 	var element struct {
 		XMLName xml.Name
 		Value   string `xml:",chardata"`
@@ -326,7 +403,7 @@ func (rp *responseProcessor) getAttrib(line string) (key string, value interface
 	if err = xml.Unmarshal([]byte(line), &element); err != nil {
 		return "", nil, ErrMsgProc.Errorf("unable to parse xml: %s, %+v", line, err)
 	}
-	key = element.XMLName.Local
+	key = emuMessageAttribute(element.XMLName.Local)
 	strValue := element.Value
 	if at, ok := attribTypeMap[key]; ok {
 		var err error = nil
@@ -380,7 +457,7 @@ func (rp *responseProcessor) process(line string) {
 	}
 	tag, ok = rp.stopResponseTag(line)
 	if ok {
-		if rp.state == RspReceiving && rp.resp.GetName() == tag {
+		if rp.state == RspReceiving && rp.resp.Name == tag {
 			rp.state = RspReceived
 		} else {
 			WarningLogger.Printf("invalid end of response %s received. expecting[%s, %s]. line: %s", tag, rp.resp.GetName(), rp.state, line)
@@ -420,7 +497,7 @@ func (rp *responseProcessor) processv2(line string) {
 		}
 	case RspReceiving:
 		if tag, ok := rp.stopResponseTag(line); ok {
-			if rp.resp.GetName() == tag {
+			if rp.resp.Name == tag {
 				rp.state = RspReceived
 			} else {
 				WarningLogger.Printf("invalid end of response %s received. expecting[%s, %+v]. line: %s", tag, rp.resp.GetName(), rp.state, line)

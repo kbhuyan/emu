@@ -42,132 +42,197 @@ func (a atrribType) String() string {
 	}
 }
 
+type emuMessageName string
+
+const (
+	emuNetworkInfo               emuMessageName = "NetworkInfo"
+	emuApsTable                  emuMessageName = "ApsTable"
+	emuInformation               emuMessageName = "Information"
+	emuTimeCluster               emuMessageName = "TimeCluster"
+	emuNwkTable                  emuMessageName = "NwkTable"
+	emuPriceCluster              emuMessageName = "PriceCluster"
+	emuDeviceInfo                emuMessageName = "DeviceInfo"
+	emuGoogle                    emuMessageName = "Google"
+	emuSimpleMeteringCluster     emuMessageName = "SimpleMeteringCluster"
+	emuInstantaneousDemand       emuMessageName = "InstantaneousDemand"
+	emuBlockPriceDetail          emuMessageName = "BlockPriceDetail"
+	emuConnectionStatus          emuMessageName = "ConnectionStatus"
+	emuBillingPeriodList         emuMessageName = "BillingPeriodList"
+	emuMessageCluster            emuMessageName = "MessageCluster"
+	emuFastPollStatus            emuMessageName = "FastPollStatus"
+	emuCurrentSummationDelivered emuMessageName = "CurrentSummationDelivered"
+	emuScheduleInfo              emuMessageName = "ScheduleInfo"
+	emuWarning                   emuMessageName = "Warning"
+	emuAck                       emuMessageName = "Ack"
+)
+
+type emuCommandName string
+
+const (
+	emuRestart                      emuCommandName = "restart"
+	emuGetDeviceInfo                emuCommandName = "get_device_info"
+	emuGetNetworkInfo               emuCommandName = "get_network_info"
+	emuGetTime                      emuCommandName = "get_time"
+	emuGetConnStatus                emuCommandName = "get_connection_status"
+	emuGetMessage                   emuCommandName = "get_message"
+	emuGetFastPollStatus            emuCommandName = "get_fast_poll_status"
+	emuGetCurrentSummationDelivered emuCommandName = "get_current_summation_delivered"
+	emuGetInstantaneousDemand       emuCommandName = "get_instantaneous_demand"
+	emuGetLocalAttributes           emuCommandName = "get_local_attributes"
+	emuGetPriceBlocks               emuCommandName = "get_price_blocks"
+	emuGetSchedule                  emuCommandName = "get_schedule"
+	emuGetProfileData               emuCommandName = "get_profile_data"
+)
+
+type emuMessageAttribute string
+
+const (
+	emuDeviceMacId          emuMessageAttribute = "DeviceMacId"
+	emuMeterMacId           emuMessageAttribute = "MeterMacId"
+	emuTimeStamp            emuMessageAttribute = "TimeStamp"
+	emuMessage              emuMessageAttribute = "Message"
+	emuFastPoll             emuMessageAttribute = "FastPoll"
+	emuDigitsRight          emuMessageAttribute = "DigitsRight"
+	emuDigitsLeft           emuMessageAttribute = "DigitsLeft"
+	emuSuppressLeadingZero  emuMessageAttribute = "SuppressLeadingZero"
+	emuDivisor              emuMessageAttribute = "Divisor"
+	emuMultiplier           emuMessageAttribute = "Multiplier"
+	emuDemand               emuMessageAttribute = "Demand"
+	emuSuppressTrailingZero emuMessageAttribute = "SuppressTrailingZero"
+	emuSummationDelivered   emuMessageAttribute = "SummationDelivered"
+	emuSummationReceived    emuMessageAttribute = "SummationReceived"
+	emuChannel              emuMessageAttribute = "Channel"
+	emuExtPanId             emuMessageAttribute = "ExtPanId"
+	emuLinkStrength         emuMessageAttribute = "LinkStrength"
+	emuDescription          emuMessageAttribute = "Description"
+	emuShortAddr            emuMessageAttribute = "ShortAddr"
+	emuStatus               emuMessageAttribute = "Status"
+	emuLocalTime            emuMessageAttribute = "LocalTime"
+	emuUTCTime              emuMessageAttribute = "UTCTime"
+	emuDateCode             emuMessageAttribute = "DateCode"
+	emuFWVersion            emuMessageAttribute = "FWVersion"
+	emuHWVersion            emuMessageAttribute = "HWVersion"
+	emuImageType            emuMessageAttribute = "ImageType"
+	emuInstallCode          emuMessageAttribute = "InstallCode"
+	emuLinkKey              emuMessageAttribute = "LinkKey"
+	emuManufacturer         emuMessageAttribute = "Manufacturer"
+	emuModelId              emuMessageAttribute = "ModelId"
+	emuCoordMacId           emuMessageAttribute = "CoordMacId"
+	emuConfirmationRequired emuMessageAttribute = "ConfirmationRequired"
+	emuConfirmed            emuMessageAttribute = "Confirmed"
+	emuDuration             emuMessageAttribute = "Duration"
+	emuId                   emuMessageAttribute = "Id"
+	emuPriority             emuMessageAttribute = "Priority"
+	emuQueue                emuMessageAttribute = "Queue"
+	emuStartTime            emuMessageAttribute = "StartTime"
+	emuText                 emuMessageAttribute = "Text"
+	emuEndTime              emuMessageAttribute = "EndTime"
+	emuFrequency            emuMessageAttribute = "Frequency"
+	emuEnabled              emuMessageAttribute = "Enabled"
+	emuEvent                emuMessageAttribute = "Event"
+	emuMode                 emuMessageAttribute = "Mode"
+)
+
+type emMessage2ApiMessage func(*messageImpl) (Message, error)
+
 var (
-	responseCache = map[string](Message){
-		"NetworkInfo":               nil,
-		"ApsTable":                  nil,
-		"Information":               nil,
-		"TimeCluster":               nil,
-		"NwkTable":                  nil,
-		"PriceCluster":              nil,
-		"DeviceInfo":                nil,
-		"Google":                    nil,
-		"SimpleMeteringCluster":     nil,
-		"InstantaneousDemand":       nil,
-		"BlockPriceDetail":          nil,
-		"ConnectionStatus":          nil,
-		"BillingPeriodList":         nil,
-		"MessageCluster":            nil,
-		"FastPollStatus":            nil,
-		"CurrentSummationDelivered": nil,
-		"ScheduleInfo":              nil,
-		"Warning":                   nil,
-		"Error":                     nil,
-		"Ack":                       &messageImpl{Id: -1, Name: "Ack", Attribs: map[string]interface{}{"Status": "Success"}},
+	messageProcessorMap = map[emuMessageName]emMessage2ApiMessage{
+		emuCurrentSummationDelivered: emuCurrentSummationDelivered2CumulativeEnergy,
+		emuInstantaneousDemand:       emuInstantaneousDemand2InstantaneousPower,
 	}
 
-	cmdIdcmdMap = map[CommandId]string{
-		RESTART:         "restart",
-		GET_DEVICE_INFO: "get_device_info",
-		GET_TIME:        "get_time",
-		GET_CONN_STATUS: "get_connection_status",
+	apiMessageNames = []MessageName{
+		DeviceInfo, NetworkInfo, TimeCluster, InstantaneousPower, CumulativeEnergy,
+	}
+	emuResponses = []emuMessageName{
+		emuNetworkInfo,
+		emuApsTable,
+		emuInformation,
+		emuTimeCluster,
+		emuNwkTable,
+		emuPriceCluster,
+		emuDeviceInfo,
+		emuGoogle,
+		emuSimpleMeteringCluster,
+		emuInstantaneousDemand,
+		emuBlockPriceDetail,
+		emuConnectionStatus,
+		emuBillingPeriodList,
+		emuMessageCluster,
+		emuFastPollStatus,
+		emuCurrentSummationDelivered,
+		emuScheduleInfo,
+		emuWarning,
+		emuAck,
 	}
 
-	cmdRspMap = map[string]string{
-		"restart":               "Ack",
-		"get_device_info":       "DeviceInfo",
-		"get_network_info":      "NetworkInfo",
-		"get_time":              "TimeCluster",
-		"get_connection_status": "ConnectionStatus",
-		"get_message":           "MessageCluster",
-		"get_fast_poll_status":  "FastPollStatus",
-		// Simple Metering Commands
-		"get_current_summation_delivered": "CurrentSummationDelivered",
-		"get_instantaneous_demand":        "InstantaneousDemand",
-		//Experimental
-		"get_local_attributes": "Ack",
-		"get_price_blocks":     "Ack",
-		"get_schedule":         "Ack",
-		"get_profile_data":     "Ack",
-
-		//"get_last_period_usage":           "Warning",
-		//"get_price":                "BlockPriceDetail",
-		//"get_billing_period":   "BillingPeriodList",
-		//	"get_aps_table":        "ApsTable",
-		//"get_information":   "Information",
-		//"print_network_tables": "NwkTable",
-		//"get_price_cluster":    "PriceCluster",
-		//	"get_google":               "Google",
-		//"get_simple_metering": "SimpleMeteringCluster",
-		//	"get_restart_info":         "Warning",
+	cmdIdcmdMap = map[CommandId]emuCommandName{
+		RESTART:         emuRestart,
+		GET_DEVICE_INFO: emuGetDeviceInfo,
+		GET_TIME:        emuGetTime,
+		GET_CONN_STATUS: emuGetConnStatus,
 	}
 
-	attribTypeMap = map[string]atrribType{
-		"DeviceMacId": STRING,
-		"MeterMacId":  STRING,
-		"TimeStamp":   EPOCH,
-		"Message":     STRING,
-		"FastPoll":    BOOLEAN,
-		// Name:InstantaneousDemand Attribs:map[Demand:0x000d3d DeviceMacId:0xd8d5b90000011821 DigitsLeft:0x05
-		// DigitsRight:0x03 Divisor:0x000003e8 MeterMacId:0x001c640010ea31ad Multiplier:0x00000003 SuppressLeadingZero:Y
-		// TimeStamp:0x2f520b33]
-		"DigitsRight":         UINT8,
-		"DigitsLeft":          UINT8,
-		"SuppressLeadingZero": BOOLEAN,
-		"Divisor":             INT64,
-		"Multiplier":          UINT32,
-		"Demand":              UINT32,
-		// Name:CurrentSummationDelivered Attribs:map[DeviceMacId:0xd8d5b90000011821 DigitsLeft:0x05 DigitsRight:0x04
-		// Divisor:0x000003e8 MeterMacId:0x001c640010ea31ad Multiplier:0x00000003 SummationDelivered:0x0000000001cde3d8
-		// SummationReceived:0x0000000000000000 SuppressLeadingZero:Y TimeStamp:0x2f520bb8]
-		"SuppressTrailingZero": BOOLEAN,
-		"SummationDelivered":   UINT64,
-		"SummationReceived":    UINT64,
-		// Name:ConnectionStatus Attribs:map[Channel:20 Description:Successfully Joined DeviceMacId:0xd8d5b90000011821
-		// ExtPanId:0x001c640010ea31ad LinkStrength:0x46 MeterMacId:0x001c640010ea31ad ShortAddr:0xbd2c Status:Connected]
-		"Channel":      STRING,
-		"ExtPanId":     STRING,
-		"LinkStrength": UINT8,
-		"Description":  STRING,
-		"ShortAddr":    STRING,
-		"Status":       STRING,
-		// TimeCluster Attribs:map[DeviceMacId:0xd8d5b90000011821 LocalTime:0x2f519517 MeterMacId:0x001c640010ea31ad
-		// UTCTime:0x2f520597]
-		"LocalTime": EPOCH,
-		"UTCTime":   EPOCH,
-		// Name:DeviceInfo Attribs:map[DateCode:20211020355a0605 DeviceMacId:0xd8d5b90000011821
-		// FWVersion:2.0.0 (7400) HWVersion:2.7.3 ImageType:0x2201 InstallCode:0x200a2c7d6b50ff8a
-		// LinkKey:0xa09c9c4ad3a61e87e5beb4c5d186a377 Manufacturer:Rainforest Automation, Inc.
-		// ModelId:Z105-2-EMU2-LEDD_JM]
-		"DateCode":     STRING,
-		"FWVersion":    STRING,
-		"HWVersion":    STRING,
-		"ImageType":    UINT16,
-		"InstallCode":  UINT64,
-		"LinkKey":      STRING,
-		"Manufacturer": STRING,
-		"ModelId":      STRING,
-		// Name:NetworkInfo Attribs:map[Channel:20 CoordMacId:0x001c640010ea31ad Description:Successfully Joined
-		// DeviceMacId:0xd8d5b90000011821 ExtPanId:0x001c640010ea31ad LinkStrength:0x64 ShortAddr:0xbd2c Status:Connected]
-		"CoordMacId": STRING,
-		// Name:MessageCluster Attribs:map[ConfirmationRequired:N Confirmed:N DeviceMacId:0xd8d5b90000011821
-		// Duration: Id: MeterMacId:0x001c640010ea31ad Priority: Queue:Active StartTime: Text: TimeStamp:]
-		"ConfirmationRequired": BOOLEAN,
-		"Confirmed":            BOOLEAN,
-		"Duration":             STRING, // @TODO: Need to verified with real data
-		"Id":                   STRING, // @TODO: Need to verified with real data
-		"Priority":             STRING, // @TODO: Need to verified with real data
-		"Queue":                STRING,
-		"StartTime":            EPOCH,  // @TODO: Need to verified with real data
-		"Text":                 STRING, // @TODO: Need to verified with real data
-		// FastPollStatus Attribs:map[DeviceMacId:0xd8d5b90000011821 EndTime:0x00000000 Frequency:0x00
-		// MeterMacId:0x001c640010ea31ad]
-		"EndTime":   UINT32, // @TODO: Need to verified with real data
-		"Frequency": UINT32,
-		// Name:ScheduleInfo Attribs:map[DeviceMacId:0xd8d5b90000011821 Enabled:Y Event:summation
-		// Frequency:0x000000f0 MeterMacId:0x001c640010ea31ad Mode:rest]
-		"Enabled": BOOLEAN,
-		"Event":   STRING,
-		"Mode":    STRING,
+	cmdRspMap = map[emuCommandName]emuMessageName{
+		emuRestart:                      emuAck,
+		emuGetDeviceInfo:                emuDeviceInfo,
+		emuGetNetworkInfo:               emuNetworkInfo,
+		emuGetTime:                      emuTimeCluster,
+		emuGetConnStatus:                emuConnectionStatus,
+		emuGetMessage:                   emuMessageCluster,
+		emuGetFastPollStatus:            emuFastPollStatus,
+		emuGetCurrentSummationDelivered: emuCurrentSummationDelivered,
+		emuGetInstantaneousDemand:       emuInstantaneousDemand,
+		emuGetLocalAttributes:           emuAck,
+		emuGetPriceBlocks:               emuAck,
+		emuGetSchedule:                  emuAck,
+		emuGetProfileData:               emuAck,
+	}
+
+	attribTypeMap = map[emuMessageAttribute]atrribType{
+		emuDeviceMacId:          STRING,
+		emuMeterMacId:           STRING,
+		emuTimeStamp:            EPOCH,
+		emuMessage:              STRING,
+		emuFastPoll:             BOOLEAN,
+		emuDigitsRight:          UINT8,
+		emuDigitsLeft:           UINT8,
+		emuSuppressLeadingZero:  BOOLEAN,
+		emuDivisor:              INT64,
+		emuMultiplier:           UINT32,
+		emuDemand:               UINT32,
+		emuSuppressTrailingZero: BOOLEAN,
+		emuSummationDelivered:   UINT64,
+		emuSummationReceived:    UINT64,
+		emuChannel:              STRING,
+		emuExtPanId:             STRING,
+		emuLinkStrength:         UINT8,
+		emuDescription:          STRING,
+		emuShortAddr:            STRING,
+		emuStatus:               STRING,
+		emuLocalTime:            EPOCH,
+		emuUTCTime:              EPOCH,
+		emuDateCode:             STRING,
+		emuFWVersion:            STRING,
+		emuHWVersion:            STRING,
+		emuImageType:            UINT16,
+		emuInstallCode:          UINT64,
+		emuLinkKey:              STRING,
+		emuManufacturer:         STRING,
+		emuModelId:              STRING,
+		emuCoordMacId:           STRING,
+		emuConfirmationRequired: BOOLEAN,
+		emuConfirmed:            BOOLEAN,
+		emuDuration:             STRING,
+		emuId:                   STRING,
+		emuPriority:             STRING,
+		emuQueue:                STRING,
+		emuStartTime:            EPOCH,
+		emuText:                 STRING,
+		emuEndTime:              UINT32,
+		emuFrequency:            UINT32,
+		emuEnabled:              BOOLEAN,
+		emuEvent:                STRING,
+		emuMode:                 STRING,
 	}
 )

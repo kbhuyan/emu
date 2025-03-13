@@ -78,11 +78,12 @@ func WithLoggingLevel(l LogLevel) EmuOption {
 type Emu interface {
 	SendCommand(Command) error
 	GetResponse() (Message, error)
-	GetMessage(names []MessageName) (Message, error)
+	Subscribe([]MessageName, *func(Message)) error
+	Unsubscribe([]MessageName, *func(Message))
 	Start()
 	Close()
 	GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption, error)
-	GetInstantaneousPowerConsumption() (*InstantaneousPowerConsumption, error)
+	GetInstantaneousPowerConsumption() (*InstantaneousPowerDemand, error)
 }
 
 func NewEmu(dev string, opts ...EmuOption) (Emu, error) {
@@ -106,26 +107,63 @@ type CumulativeEnergyConsumption struct {
 	MeterMacId  string
 }
 
-type InstantaneousPowerConsumption struct {
+func (m *CumulativeEnergyConsumption) GetName() string {
+	return string(CumulativeEnergy)
+}
+func (m *CumulativeEnergyConsumption) GetAttrib(at string) (interface{}, bool) {
+	switch at {
+	case "TimeStamp":
+		return m.TimeStamp, true
+	case "Energy":
+		return m.Energy, true
+	case "DeviceMacId":
+		return m.DeviceMacId, true
+	case "MeterMacId":
+		return m.MeterMacId, true
+	default:
+		return nil, false
+	}
+}
+
+type InstantaneousPowerDemand struct {
 	TimeStamp   int64
 	Power       float64 //Unit is KW
 	DeviceMacId string
 	MeterMacId  string
 }
 
+func (m *InstantaneousPowerDemand) GetName() string {
+	return string(InstantaneousPower)
+}
+func (m *InstantaneousPowerDemand) GetAttrib(at string) (interface{}, bool) {
+	switch at {
+	case "TimeStamp":
+		return m.TimeStamp, true
+	case "Power":
+		return m.Power, true
+	case "DeviceMacId":
+		return m.DeviceMacId, true
+	case "MeterMacId":
+		return m.MeterMacId, true
+	default:
+		return nil, false
+	}
+}
+
 type MessageName string
 
 const (
-	DeviceInfo                MessageName = "DeviceInfo"
-	NetworkInfo               MessageName = "NetworkInfo"
-	TimeCluster               MessageName = "TimeCluster"
-	InstantaneousDemand       MessageName = "InstantaneousDemand"
-	CurrentSummationDelivered MessageName = "CurrentSummationDelivered"
+	DeviceInfo         MessageName = "DeviceInfo"
+	NetworkInfo        MessageName = "NetworkInfo"
+	TimeCluster        MessageName = "TimeCluster"
+	InstantaneousPower MessageName = "InstantaneousPower"
+	CumulativeEnergy   MessageName = "CumulativeEnergy"
+	Ack                MessageName = "Ack"
 )
 
 type Message interface {
 	GetName() string
-	SetAttrib(string, interface{})
+	//	SetAttrib(string, interface{})
 	GetAttrib(string) (interface{}, bool)
 }
 
@@ -137,6 +175,13 @@ const (
 	GET_TIME                             // gets the time (local and UTC) on the emu-2 as sync with the smart energy meter
 	GET_CONN_STATUS                      // gets the current connection status with the smart energy meter
 )
+
+var CommandResponseMap = map[CommandId]MessageName{
+	RESTART:         Ack,
+	GET_DEVICE_INFO: DeviceInfo,
+	GET_TIME:        TimeCluster,
+	GET_CONN_STATUS: NetworkInfo,
+}
 
 func (c CommandId) String() string {
 	if str, ok := commandIdString[c]; ok {
@@ -159,7 +204,7 @@ type Command interface {
 
 func NewCommand(id CommandId) (Command, error) {
 	if name, ok := cmdIdcmdMap[id]; ok {
-		return &messageImpl{
+		return &commandImpl{
 			Id:   id,
 			Name: name,
 		}, nil

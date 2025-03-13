@@ -12,7 +12,7 @@ import (
 	"github.com/kbhuyan/emu"
 )
 
-func sigHandler(device emu.Emu) {
+func waitingToBeTerminate(device emu.Emu) {
 	// Create a channel to receive signals.
 	sigChan := make(chan os.Signal, 1)
 
@@ -38,6 +38,7 @@ func sigHandler(device emu.Emu) {
 		fmt.Println("Unexpected signal received.")
 	}
 }
+
 func main() {
 	// Configure command-line flags
 	port := flag.String("port", "/dev/ttyACM1", "Serial port device path")
@@ -76,19 +77,21 @@ func main() {
 	}
 	defer device.Close()
 	device.Start()
-	go func() {
-		//fmt.Println("commanf: ", command)
-		// Execute command
-		cmd, err := emu.NewCommand(command)
-		if err != nil {
-			log.Fatalf("%v", err)
-		}
 
-		if msg, err := executeCommand(device, cmd); err != nil {
-			log.Fatalf("%v", err)
-		} else {
-			processMessage(msg)
-		}
+	//fmt.Println("commanf: ", command)
+	// Execute command
+	cmd, err := emu.NewCommand(command)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
+	if msg, err := executeCommand(device, cmd); err != nil {
+		log.Fatalf("%v", err)
+	} else {
+		processMessage(msg)
+	}
+
+	go func() {
 
 		if energy, err := device.GetCumulativeEnergyConsumption(); err != nil {
 			log.Fatalf("%v", err)
@@ -102,42 +105,15 @@ func main() {
 			log.Printf("TimeStamp: %s Instantaneous Demand: %.3fkW\n", time.Unix(power.TimeStamp, 0), power.Power)
 		}
 
-		sub := []emu.MessageName{emu.TimeCluster, emu.CurrentSummationDelivered, emu.InstantaneousDemand}
-		for {
-			if msg, err := device.GetMessage(sub); err == nil {
-				processMessage(msg)
-			} else {
-				if err == emu.ErrTimeOut {
-					log.Printf("WARNING: GetMessage timed out: %v", err)
-				} else {
-					log.Fatalf("GetMessage failed: %v", err)
-				}
-			}
-		}
 	}()
 
-	sigHandler(device)
+	waitingToBeTerminate(device)
 }
 
 func processMessage(msg emu.Message) {
-	if msg.GetName() == "InstantaneousDemand" {
-
-		if power, err := emu.GetInstantaneousPowerConsumption(msg); err != nil {
-			log.Println(err)
-			return
-		} else {
-			log.Printf("TimeStamp: %s Instantaneous Demand: %.3fkW\n", time.Unix(power.TimeStamp, 0), power.Power)
-		}
-
-	} else if msg.GetName() == "CurrentSummationDelivered" {
-
-		if energy, err := emu.GetCumulativeEnergyConsumption(msg); err != nil {
-			log.Println(err)
-			return
-		} else {
-			log.Printf("TimeStamp: %s Current Cumulative Energy Delivered: %.3fkWh\n", time.Unix(energy.TimeStamp, 0), energy.Energy)
-		}
-	} else if msg.GetName() == "TimeCluster" {
+	name := emu.MessageName(msg.GetName())
+	switch name {
+	case emu.TimeCluster:
 		var local, utc int64
 		if value, ok := msg.GetAttrib("LocalTime"); !ok {
 			log.Printf("LocalTime not found %+v\n", msg)
@@ -154,7 +130,19 @@ func processMessage(msg emu.Message) {
 		log.Printf("TimeCluster: LocalTime: %s UTCTime %s\n",
 			time.Unix(local, 0).In(time.UTC).Format("2006-01-02 15:04:05"),
 			time.Unix(utc, 0).In(time.UTC).Format("2006-01-02 15:04:05"))
-	} else {
+	case emu.InstantaneousPower:
+		if power, ok := msg.(*emu.InstantaneousPowerDemand); ok {
+			log.Printf("TimeStamp: %s Instantaneous Demand: %.3fkW\n", time.Unix(power.TimeStamp, 0), power.Power)
+		} else {
+			log.Printf("invalid message: expecting emu.InstantaneousPowerDemand insted got %T. %+v", msg, msg)
+		}
+	case emu.CumulativeEnergy:
+		if energy, ok := msg.(*emu.CumulativeEnergyConsumption); ok {
+			log.Printf("TimeStamp: %s Current Cumulative Energy Delivered: %.3fkWh\n", time.Unix(energy.TimeStamp, 0), energy.Energy)
+		} else {
+			log.Printf("invalid message: expecting emu.CumulativeEnergyConsumption insted got %T. %+v", msg, msg)
+		}
+	default:
 		log.Printf("Message: %+v\n", msg)
 	}
 }

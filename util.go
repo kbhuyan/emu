@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-func GetInstantaneousPowerConsumption(in Message) (*InstantaneousPowerConsumption, error) {
+func GetInstantaneousPowerConsumption(in Message) (*InstantaneousPowerDemand, error) {
 	DebugLogger.Printf("%+v", in)
 	if msg, ok := in.(*messageImpl); ok {
-		ipc := &InstantaneousPowerConsumption{}
+		ipc := &InstantaneousPowerDemand{}
 		if ipc.TimeStamp, ok = msg.Attribs["TimeStamp"].(int64); !ok {
 			return nil, fmt.Errorf("TimeStamp not found in message")
 		}
