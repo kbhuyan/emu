@@ -78,12 +78,14 @@ func WithLoggingLevel(l LogLevel) EmuOption {
 type Emu interface {
 	SendCommand(Command) error
 	GetResponse() (Message, error)
-	Subscribe([]MessageName, *func(Message)) error
-	Unsubscribe([]MessageName, *func(Message))
+	//	Subscribe([]MessageName, *func(Message)) error
+	//	Unsubscribe([]MessageName, *func(Message))
+	Subscribe(MessageName) (chan Message, error)
+	Unsubscribe(MessageName, <-chan Message)
 	Start()
 	Close()
-	GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption, error)
-	GetInstantaneousPowerConsumption() (*InstantaneousPowerDemand, error)
+	// GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption, error)
+	// GetInstantaneousPowerConsumption() (*InstantaneousPowerDemand, error)
 }
 
 func NewEmu(dev string, opts ...EmuOption) (Emu, error) {

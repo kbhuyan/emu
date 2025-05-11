@@ -2,14 +2,11 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/kbhuyan/emu"
+	"github.com/kbhuyan/emu/util"
 )
 
 func main() {
@@ -40,39 +37,62 @@ func main() {
 	// if power, err := device.GetInstantaneousPowerConsumption(); err == nil {
 	// 	log.Printf("Power Consumption: %v kW", power.Power)
 	// }
-	sub := []emu.MessageName{emu.InstantaneousPower, emu.CumulativeEnergy}
-	handler := processMessage
-	device.Subscribe(sub, &handler)
-
-	waitingToBeTerminate(device)
-}
-
-func waitingToBeTerminate(device emu.Emu) {
-	// Create a channel to receive signals.
-	sigChan := make(chan os.Signal, 1)
-
-	// Notify the channel of specific signals.
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	fmt.Println("Program is running. Press Ctrl+C to interrupt.")
-
-	// Block until a signal is received.
-	sig := <-sigChan
-
-	// Handle the signal.
-	switch sig {
-	case syscall.SIGINT:
-		fmt.Println("SIGINT received. Exiting...")
-		device.Close()
-		os.Exit(0)
-	case syscall.SIGTERM:
-		fmt.Println("SIGTERM received. Exiting...")
-		device.Close()
-		os.Exit(0)
-	default:
-		fmt.Println("Unexpected signal received.")
+	//sub := []emu.MessageName{emu.InstantaneousPower, emu.CumulativeEnergy}
+	//handler := processMessage
+	//device.Subscribe(sub, &handler)
+	ipch, err := device.Subscribe(emu.InstantaneousPower)
+	if err != nil {
+		log.Fatalf("Failed to subscribe to %s: %v", emu.InstantaneousPower, err)
 	}
+	cech, err := device.Subscribe(emu.CumulativeEnergy)
+	if err != nil {
+		log.Fatalf("Failed to subscribe to %s: %v", emu.CumulativeEnergy, err)
+	}
+	go func() {
+		for {
+			select {
+			case msg := <-ipch:
+				processMessage(msg)
+			case msg := <-cech:
+				processMessage(msg)
+			}
+		}
+	}()
+
+	//	waitingToBeTerminate(device)
+	util.WaitingToBeTerminate(func() {
+		device.Unsubscribe(emu.InstantaneousPower, ipch)
+		device.Unsubscribe(emu.CumulativeEnergy, cech)
+		device.Close()
+	}, log.Default())
 }
+
+// func waitingToBeTerminate(device emu.Emu) {
+// 	// Create a channel to receive signals.
+// 	sigChan := make(chan os.Signal, 1)
+
+// 	// Notify the channel of specific signals.
+// 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+// 	fmt.Println("Program is running. Press Ctrl+C to interrupt.")
+
+// 	// Block until a signal is received.
+// 	sig := <-sigChan
+
+// 	// Handle the signal.
+// 	switch sig {
+// 	case syscall.SIGINT:
+// 		fmt.Println("SIGINT received. Exiting...")
+// 		device.Close()
+// 		os.Exit(0)
+// 	case syscall.SIGTERM:
+// 		fmt.Println("SIGTERM received. Exiting...")
+// 		device.Close()
+// 		os.Exit(0)
+// 	default:
+// 		fmt.Println("Unexpected signal received.")
+// 	}
+// }
 
 func processMessage(msg emu.Message) {
 	name := emu.MessageName(msg.GetName())
@@ -94,18 +114,18 @@ func processMessage(msg emu.Message) {
 		log.Printf("TimeCluster: LocalTime: %s UTCTime %s\n",
 			time.Unix(local, 0).In(time.UTC).Format("2006-01-02 15:04:05"),
 			time.Unix(utc, 0).In(time.UTC).Format("2006-01-02 15:04:05"))
-	case emu.InstantaneousPower:
-		if power, ok := msg.(*emu.InstantaneousPowerDemand); ok {
-			log.Printf("TimeStamp: %s Instantaneous Demand: %.3fkW\n", time.Unix(power.TimeStamp, 0), power.Power)
-		} else {
-			log.Printf("invalid message: expecting emu.InstantaneousPowerDemand insted got %T. %+v", msg, msg)
-		}
-	case emu.CumulativeEnergy:
-		if energy, ok := msg.(*emu.CumulativeEnergyConsumption); ok {
-			log.Printf("TimeStamp: %s Current Cumulative Energy Delivered: %.3fkWh\n", time.Unix(energy.TimeStamp, 0), energy.Energy)
-		} else {
-			log.Printf("invalid message: expecting emu.CumulativeEnergyConsumption insted got %T. %+v", msg, msg)
-		}
+	// case emu.InstantaneousPower:
+	// 	if power, ok := msg.(*emu.InstantaneousPowerDemand); ok {
+	// 		log.Printf("TimeStamp: %s Instantaneous Demand: %.3fkW\n", time.Unix(power.TimeStamp, 0), power.Power)
+	// 	} else {
+	// 		log.Printf("invalid message: expecting emu.InstantaneousPowerDemand insted got %T. %+v", msg, msg)
+	// 	}
+	// case emu.CumulativeEnergy:
+	// 	if energy, ok := msg.(*emu.CumulativeEnergyConsumption); ok {
+	// 		log.Printf("TimeStamp: %s Current Cumulative Energy Delivered: %.3fkWh\n", time.Unix(energy.TimeStamp, 0), energy.Energy)
+	// 	} else {
+	// 		log.Printf("invalid message: expecting emu.CumulativeEnergyConsumption insted got %T. %+v", msg, msg)
+	// 	}
 	default:
 		log.Printf("Message: %+v\n", msg)
 	}

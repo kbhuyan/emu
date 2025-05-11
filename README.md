@@ -119,6 +119,9 @@ if energy, err := device.GetCumulativeEnergyConsumption(); err == nil {
 	}
 	device.Subscribe(sub, &handler)
 ```
+## AccoAcknowledgements
+
+* Based on [Emu-Serial-API](https://github.com/rainforestautomation/Emu-Serial-API)
 
 ## Contributing
 

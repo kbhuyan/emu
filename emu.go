@@ -9,9 +9,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
+	"github.com/kbhuyan/emu/util"
 	"go.bug.st/serial"
 )
 
@@ -62,14 +62,15 @@ func (m *commandImpl) GetAttrib(key string) (interface{}, bool) {
 }
 
 type emuImpl struct {
-	conn          io.ReadWriteCloser
-	responses     chan Message
-	ctx           context.Context
-	cancel        context.CancelFunc
-	cmdState      *commandState
-	opt           *EmuOptions
-	subscriptions map[MessageName]map[*func(Message)]bool
-	lck           sync.RWMutex
+	conn      io.ReadWriteCloser
+	responses chan Message
+	ctx       context.Context
+	cancel    context.CancelFunc
+	cmdState  *commandState
+	opt       *EmuOptions
+	//	subscriptions map[MessageName]map[*func(Message)]bool
+	//	lck           sync.RWMutex
+	pubsub *util.PubSub[MessageName, Message]
 }
 
 func newEmuImpl(dev string, opt *EmuOptions) (Emu, error) {
@@ -88,14 +89,17 @@ func newEmuImpl(dev string, opt *EmuOptions) (Emu, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	pubsub := util.NewPubSub[MessageName, Message]()
+
 	return &emuImpl{
-		conn:          port,
-		responses:     make(chan Message, 1),
-		ctx:           ctx,
-		cancel:        cancel,
-		cmdState:      nil,
-		opt:           opt,
-		subscriptions: make(map[MessageName]map[*func(Message)]bool),
+		conn:      port,
+		responses: make(chan Message, 1),
+		ctx:       ctx,
+		cancel:    cancel,
+		cmdState:  nil,
+		opt:       opt,
+		//		subscriptions: make(map[MessageName]map[*func(Message)]bool),
+		pubsub: pubsub,
 	}, nil
 }
 
@@ -144,37 +148,49 @@ func convertApiMessage(m *messageImpl) (Message, error) {
 	return nil, fmt.Errorf("message %s cannot be connverted as AIP message", m.GetName())
 }
 
-func (e *emuImpl) Subscribe(names []MessageName, handler *func(Message)) error {
-	DebugLogger.Printf("Messages: %+v func %v", names, handler)
-	e.lck.Lock()
-	defer e.lck.Unlock()
-	nSub := 0
-	for _, name := range names {
-		if slices.Contains(apiMessageNames, name) {
-			if _, ok := e.subscriptions[name]; !ok {
-				e.subscriptions[name] = make(map[*func(Message)]bool)
-			}
-			e.subscriptions[name][handler] = true
-			nSub += 1
-		} else {
-			WarningLogger.Printf("Ignoring invalid API MessageName %s", name)
-		}
+func (e *emuImpl) Subscribe(mn MessageName) (chan Message, error) {
+	if slices.Contains(apiMessageNames, mn) {
+		return e.pubsub.Subscribe(mn), nil
+	} else {
+		return nil, fmt.Errorf("invalid API MessageName %s", mn)
 	}
-	if nSub == 0 {
-		return fmt.Errorf("empty or invalid message names")
-	}
-	return nil
 }
 
-func (e *emuImpl) Unsubscribe(names []MessageName, handler *func(Message)) {
-	e.lck.Lock()
-	defer e.lck.Unlock()
-	for _, name := range names {
-		if sub, ok := e.subscriptions[name]; ok {
-			delete(sub, handler)
-		}
-	}
+func (e *emuImpl) Unsubscribe(mn MessageName, ch <-chan Message) {
+	e.pubsub.Close(mn, ch)
 }
+
+// func (e *emuImpl) Subscribe(names []MessageName, handler *func(Message)) error {
+// 	DebugLogger.Printf("Messages: %+v func %v", names, handler)
+// 	e.lck.Lock()
+// 	defer e.lck.Unlock()
+// 	nSub := 0
+// 	for _, name := range names {
+// 		if slices.Contains(apiMessageNames, name) {
+// 			if _, ok := e.subscriptions[name]; !ok {
+// 				e.subscriptions[name] = make(map[*func(Message)]bool)
+// 			}
+// 			e.subscriptions[name][handler] = true
+// 			nSub += 1
+// 		} else {
+// 			WarningLogger.Printf("Ignoring invalid API MessageName %s", name)
+// 		}
+// 	}
+// 	if nSub == 0 {
+// 		return fmt.Errorf("empty or invalid message names")
+// 	}
+// 	return nil
+// }
+
+// func (e *emuImpl) Unsubscribe(names []MessageName, handler *func(Message)) {
+// 	e.lck.Lock()
+// 	defer e.lck.Unlock()
+// 	for _, name := range names {
+// 		if sub, ok := e.subscriptions[name]; ok {
+// 			delete(sub, handler)
+// 		}
+// 	}
+// }
 
 func (e *emuImpl) Close() {
 	InfoLogger.Println("closing the emu session.")
@@ -183,28 +199,28 @@ func (e *emuImpl) Close() {
 	e.conn.Close()
 }
 
-func (e *emuImpl) GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption, error) {
+// func (e *emuImpl) GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption, error) {
 
-	cmd := &commandImpl{Name: emuGetCurrentSummationDelivered}
-	time.Sleep(100 * time.Millisecond)
-	e.cmdState = &commandState{command: cmd, status: CmdPending, rspName: MessageName(string(emuCurrentSummationDelivered))}
-	if rsp, err := e.GetResponse(); err != nil {
-		return nil, err
-	} else {
-		return GetCumulativeEnergyConsumption(rsp)
-	}
-}
+// 	cmd := &commandImpl{Name: emuGetCurrentSummationDelivered}
+// 	time.Sleep(100 * time.Millisecond)
+// 	e.cmdState = &commandState{command: cmd, status: CmdPending, rspName: MessageName(string(emuCurrentSummationDelivered))}
+// 	if rsp, err := e.GetResponse(); err != nil {
+// 		return nil, err
+// 	} else {
+// 		return GetCumulativeEnergyConsumption(rsp)
+// 	}
+// }
 
-func (e *emuImpl) GetInstantaneousPowerConsumption() (*InstantaneousPowerDemand, error) {
-	cmd := &commandImpl{Name: emuGetInstantaneousDemand}
-	time.Sleep(100 * time.Millisecond)
-	e.cmdState = &commandState{command: cmd, status: CmdPending, rspName: MessageName(string(emuInstantaneousDemand))}
-	if rsp, err := e.GetResponse(); err != nil {
-		return nil, err
-	} else {
-		return GetInstantaneousPowerConsumption(rsp)
-	}
-}
+// func (e *emuImpl) GetInstantaneousPowerConsumption() (*InstantaneousPowerDemand, error) {
+// 	cmd := &commandImpl{Name: emuGetInstantaneousDemand}
+// 	time.Sleep(100 * time.Millisecond)
+// 	e.cmdState = &commandState{command: cmd, status: CmdPending, rspName: MessageName(string(emuInstantaneousDemand))}
+// 	if rsp, err := e.GetResponse(); err != nil {
+// 		return nil, err
+// 	} else {
+// 		return GetInstantaneousPowerConsumption(rsp)
+// 	}
+// }
 
 func (e *emuImpl) reader() {
 	rp := newResponseProcessor()
@@ -241,7 +257,9 @@ func (e *emuImpl) reader() {
 					}
 				}
 				if m, err := convertApiMessage(rp.resp); err == nil {
-					go e.sendToSubscribers(m)
+					e.pubsub.Publish(MessageName(m.GetName()), m)
+
+					//			go e.sendToSubscribers(m)
 					//send messages to subscriber
 					if e.cmdState != nil && e.cmdState.status == CmdSent {
 						//check if response is for the command
@@ -262,13 +280,13 @@ func (e *emuImpl) reader() {
 	}
 }
 
-func (e *emuImpl) sendToSubscribers(m Message) {
-	if sub, ok := e.subscriptions[MessageName(m.GetName())]; ok {
-		for hndlr := range sub {
-			(*hndlr)(m)
-		}
-	}
-}
+// func (e *emuImpl) sendToSubscribers(m Message) {
+// 	if sub, ok := e.subscriptions[MessageName(m.GetName())]; ok {
+// 		for hndlr := range sub {
+// 			(*hndlr)(m)
+// 		}
+// 	}
+// }
 
 func (e *emuImpl) sendCommand() error {
 

@@ -91,23 +91,23 @@ func main() {
 		processMessage(msg)
 	}
 
-	go func() {
+	// go func() {
 
-		if energy, err := device.GetCumulativeEnergyConsumption(); err != nil {
-			log.Fatalf("%v", err)
-		} else {
-			log.Printf("TimeStamp: %s Current Cumulative Energy Delivered: %.3fkWh\n", time.Unix(energy.TimeStamp, 0), energy.Energy)
-		}
+	// 	if energy, err := device.GetCumulativeEnergyConsumption(); err != nil {
+	// 		log.Fatalf("%v", err)
+	// 	} else {
+	// 		log.Printf("TimeStamp: %s Current Cumulative Energy Delivered: %.3fkWh\n", time.Unix(energy.TimeStamp, 0), energy.Energy)
+	// 	}
 
-		if power, err := device.GetInstantaneousPowerConsumption(); err != nil {
-			log.Fatalf("%v", err)
-		} else {
-			log.Printf("TimeStamp: %s Instantaneous Demand: %.3fkW\n", time.Unix(power.TimeStamp, 0), power.Power)
-		}
+	// 	if power, err := device.GetInstantaneousPowerConsumption(); err != nil {
+	// 		log.Fatalf("%v", err)
+	// 	} else {
+	// 		log.Printf("TimeStamp: %s Instantaneous Demand: %.3fkW\n", time.Unix(power.TimeStamp, 0), power.Power)
+	// 	}
 
-	}()
+	// }()
 
-	waitingToBeTerminate(device)
+	//waitingToBeTerminate(device)
 }
 
 func processMessage(msg emu.Message) {
