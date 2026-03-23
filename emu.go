@@ -17,17 +17,17 @@ import (
 
 type messageImpl struct {
 	Name    emuMessageName
-	Attribs map[emuMessageAttribute]interface{}
+	Attribs map[emuMessageAttribute]any
 }
 
 func (m *messageImpl) GetName() string {
 	return string(m.Name)
 }
-func (m *messageImpl) SetAttrib(key string, value interface{}) {
+func (m *messageImpl) SetAttrib(key string, value any) {
 	m.Attribs[emuMessageAttribute(key)] = value
 }
 
-func (m *messageImpl) GetAttrib(key string) (interface{}, bool) {
+func (m *messageImpl) GetAttrib(key string) (any, bool) {
 	value, ok := m.Attribs[emuMessageAttribute(key)]
 	return value, ok
 }
@@ -43,7 +43,7 @@ func (m *messageImpl) getApiMessageName() (MessageName, bool) {
 type commandImpl struct {
 	Id      CommandId
 	Name    emuCommandName
-	Attribs map[string]interface{}
+	Attribs map[string]any
 }
 
 func (m *commandImpl) CommandId() CommandId {
@@ -52,11 +52,11 @@ func (m *commandImpl) CommandId() CommandId {
 func (m *commandImpl) GetName() string {
 	return string(m.Name)
 }
-func (m *commandImpl) SetAttrib(key string, value interface{}) {
+func (m *commandImpl) SetAttrib(key string, value any) {
 	m.Attribs[key] = value
 }
 
-func (m *commandImpl) GetAttrib(key string) (interface{}, bool) {
+func (m *commandImpl) GetAttrib(key string) (any, bool) {
 	value, ok := m.Attribs[key]
 	return value, ok
 }
@@ -309,7 +309,7 @@ func (e *emuImpl) responseAck() {
 	if e.cmdState != nil && e.cmdState.status == CmdSent {
 		if mn, ok := CommandResponseMap[e.cmdState.command.CommandId()]; ok {
 			if mn == Ack {
-				e.responses <- &messageImpl{Name: emuAck, Attribs: map[emuMessageAttribute]interface{}{emuStatus: "Success"}}
+				e.responses <- &messageImpl{Name: emuAck, Attribs: map[emuMessageAttribute]any{emuStatus: "Success"}}
 				e.cmdState = nil
 			}
 		}
@@ -392,7 +392,7 @@ func newCommandState() *commandState {
 }
 
 func newResponseProcessor() *responseProcessor {
-	return &responseProcessor{state: RspPending, resp: &messageImpl{Attribs: make(map[emuMessageAttribute]interface{})}}
+	return &responseProcessor{state: RspPending, resp: &messageImpl{Attribs: make(map[emuMessageAttribute]any)}}
 }
 
 func (rp *responseProcessor) startResponseTag(line string) (emuMessageName, bool) {
@@ -413,7 +413,7 @@ func (rp *responseProcessor) stopResponseTag(line string) (emuMessageName, bool)
 	return "", false
 }
 
-func (rp *responseProcessor) getAttrib(line string) (key emuMessageAttribute, value interface{}, err error) {
+func (rp *responseProcessor) getAttrib(line string) (key emuMessageAttribute, value any, err error) {
 	var element struct {
 		XMLName xml.Name
 		Value   string `xml:",chardata"`

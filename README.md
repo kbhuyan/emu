@@ -1,7 +1,10 @@
 # EMU-2 Go Library
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/kbhuyan/emu.svg)](https://pkg.go.dev/github.com/kbhuyan/emu)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kbhuyan/cf-ddns-client)](https://goreportcard.com/report/github.com/kbhuyan/cf-ddns-client)
+[![Build Status](https://github.com/kbhuyan/cf-ddns-client/actions/workflows/go.yml/badge.svg)](https://github.com/kbhuyan/cf-ddns-client/actions/workflows/go.yml) <!-- Optional: Setup GitHub Actions for Go -->
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 
 A pure Go library for interfacing with the EMU-2 (Energy Monitoring Unit) device through USB-serial communication. This library provides a clean API to query power consumption data from smart meters connected to the EMU-2.
 

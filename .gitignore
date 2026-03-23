@@ -1,4 +1,3 @@
-/test
 .DS_Store
-cmd/emuctl
-examples/power
+build
+emu_test.go

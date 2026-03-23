@@ -14,6 +14,10 @@ var (
 	logFile       io.Writer = os.Stdout
 )
 
+func init() {
+	initLog(logFile, LOG_ERROR)
+}
+
 func enableLogger(l *log.Logger) {
 	l.SetOutput(logFile)
 }

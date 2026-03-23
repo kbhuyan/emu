@@ -112,7 +112,7 @@ type CumulativeEnergyConsumption struct {
 func (m *CumulativeEnergyConsumption) GetName() string {
 	return string(CumulativeEnergy)
 }
-func (m *CumulativeEnergyConsumption) GetAttrib(at string) (interface{}, bool) {
+func (m *CumulativeEnergyConsumption) GetAttrib(at string) (any, bool) {
 	switch at {
 	case "TimeStamp":
 		return m.TimeStamp, true
@@ -137,7 +137,7 @@ type InstantaneousPowerDemand struct {
 func (m *InstantaneousPowerDemand) GetName() string {
 	return string(InstantaneousPower)
 }
-func (m *InstantaneousPowerDemand) GetAttrib(at string) (interface{}, bool) {
+func (m *InstantaneousPowerDemand) GetAttrib(at string) (any, bool) {
 	switch at {
 	case "TimeStamp":
 		return m.TimeStamp, true
@@ -165,8 +165,8 @@ const (
 
 type Message interface {
 	GetName() string
-	//	SetAttrib(string, interface{})
-	GetAttrib(string) (interface{}, bool)
+	//	SetAttrib(string, any)
+	GetAttrib(string) (any, bool)
 }
 
 type CommandId int8
@@ -201,7 +201,7 @@ func StrToCommandId(s string) (CommandId, error) {
 
 type Command interface {
 	CommandId() CommandId
-	SetAttrib(string, interface{})
+	SetAttrib(string, any)
 }
 
 func NewCommand(id CommandId) (Command, error) {

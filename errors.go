@@ -16,7 +16,7 @@ func NewError(msg string) *emuError {
 	}
 }
 
-func (e *emuError) Errorf(format string, args ...interface{}) error {
+func (e *emuError) Errorf(format string, args ...any) error {
 	e.msg = fmt.Sprintf(format, args...)
 	return e
 }
