@@ -196,7 +196,10 @@ func (e *emuImpl) Close() {
 	InfoLogger.Println("closing the emu session.")
 	e.cancel()
 	time.Sleep(closingGracePeriord)
-	e.conn.Close()
+	err := e.conn.Close()
+	if err != nil {
+		ErrorLogger.Printf("Close error: %v", err)
+	}
 }
 
 // func (e *emuImpl) GetCumulativeEnergyConsumption() (*CumulativeEnergyConsumption, error) {
@@ -250,7 +253,8 @@ func (e *emuImpl) reader() {
 				break
 			}
 			rp.process(line)
-			if rp.state == RspReceived {
+			switch rp.state {
+			case RspReceived:
 				//For internal commands e.g. Demand and Contineous etc
 				if e.cmdState != nil && e.cmdState.status == CmdSent {
 					//check if response is for the command
@@ -275,7 +279,7 @@ func (e *emuImpl) reader() {
 					WarningLogger.Printf("Ignoring, %s cannot be processed for API message", rp.resp.GetName())
 				}
 				rp = newResponseProcessor()
-			} else if rp.state == RspError {
+			case RspError:
 				WarningLogger.Printf("Abandoning processing response: [%s, %+v]\n", rp.state, rp.resp)
 				rp = newResponseProcessor()
 			}
@@ -390,9 +394,9 @@ type commandState struct {
 	command Command
 }
 
-func newCommandState() *commandState {
-	return &commandState{status: CmdUnknown}
-}
+// func newCommandState() *commandState {
+// 	return &commandState{status: CmdUnknown}
+// }
 
 func newResponseProcessor() *responseProcessor {
 	return &responseProcessor{state: RspPending, resp: &messageImpl{Attribs: make(map[emuMessageAttribute]any)}}
@@ -505,37 +509,37 @@ func (rp *responseProcessor) process(line string) {
 	}
 }
 
-func (rp *responseProcessor) processv2(line string) {
-	//if state is RspReceiving then look for stopResponseTag and attributes
-	//else ignore line as it start to receive in the middle of an response
-	switch rp.state {
-	case RspPending:
-		if tag, ok := rp.startResponseTag(line); ok {
-			rp.state = RspReceiving
-			rp.resp.Name = tag
-		} else {
-			WarningLogger.Printf("starting to receive in the middle of the message, ignoring. line: %s", line)
-		}
-	case RspReceiving:
-		if tag, ok := rp.stopResponseTag(line); ok {
-			if rp.resp.Name == tag {
-				rp.state = RspReceived
-			} else {
-				WarningLogger.Printf("invalid end of response %s received. expecting[%s, %+v]. line: %s", tag, rp.resp.GetName(), rp.state, line)
-				rp.state = RspError
-			}
-		} else {
-			//parse xml element from the line with <key>vale</key>
-			//add key and value to the response Attribs[key] = value
-			key, value, err := rp.getAttrib(line)
-			if err != nil {
-				WarningLogger.Printf("abandoning message %s as xml parse error:%v while processing. line: %s", rp.resp.GetName(), err, line)
-				rp.state = RspError
-			} else {
-				rp.resp.Attribs[key] = value
-			}
-		}
-	default:
-		ErrorLogger.Printf("invalid response state %+v to receive. line: %s", rp.state, line)
-	}
-}
+// func (rp *responseProcessor) processv2(line string) {
+// 	//if state is RspReceiving then look for stopResponseTag and attributes
+// 	//else ignore line as it start to receive in the middle of an response
+// 	switch rp.state {
+// 	case RspPending:
+// 		if tag, ok := rp.startResponseTag(line); ok {
+// 			rp.state = RspReceiving
+// 			rp.resp.Name = tag
+// 		} else {
+// 			WarningLogger.Printf("starting to receive in the middle of the message, ignoring. line: %s", line)
+// 		}
+// 	case RspReceiving:
+// 		if tag, ok := rp.stopResponseTag(line); ok {
+// 			if rp.resp.Name == tag {
+// 				rp.state = RspReceived
+// 			} else {
+// 				WarningLogger.Printf("invalid end of response %s received. expecting[%s, %+v]. line: %s", tag, rp.resp.GetName(), rp.state, line)
+// 				rp.state = RspError
+// 			}
+// 		} else {
+// 			//parse xml element from the line with <key>vale</key>
+// 			//add key and value to the response Attribs[key] = value
+// 			key, value, err := rp.getAttrib(line)
+// 			if err != nil {
+// 				WarningLogger.Printf("abandoning message %s as xml parse error:%v while processing. line: %s", rp.resp.GetName(), err, line)
+// 				rp.state = RspError
+// 			} else {
+// 				rp.resp.Attribs[key] = value
+// 			}
+// 		}
+// 	default:
+// 		ErrorLogger.Printf("invalid response state %+v to receive. line: %s", rp.state, line)
+// 	}
+// }

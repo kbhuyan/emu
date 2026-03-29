@@ -3,7 +3,6 @@ package emu
 import (
 	"fmt"
 	"math"
-	"reflect"
 	"time"
 )
 
@@ -97,17 +96,17 @@ func getCorrectTimeStamp(ts int64) int64 {
 	return time.Unix(ts, 0).AddDate(30, 0, -1).Unix()
 }
 
-func structToMap(obj interface{}) map[string]interface{} {
-	out := make(map[string]interface{})
-	val := reflect.ValueOf(obj)
-	if val.Kind() == reflect.Ptr {
-		val = val.Elem()
-	}
+// func structToMap(obj interface{}) map[string]interface{} {
+// 	out := make(map[string]interface{})
+// 	val := reflect.ValueOf(obj)
+// 	if val.Kind() == reflect.Ptr {
+// 		val = val.Elem()
+// 	}
 
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Type().Field(i)
-		fieldValue := val.Field(i).Interface()
-		out[field.Name] = fieldValue
-	}
-	return out
-}
+// 	for i := 0; i < val.NumField(); i++ {
+// 		field := val.Type().Field(i)
+// 		fieldValue := val.Field(i).Interface()
+// 		out[field.Name] = fieldValue
+// 	}
+// 	return out
+// }

@@ -4,40 +4,37 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/kbhuyan/emu"
 )
 
-func waitingToBeTerminate(device emu.Emu) {
-	// Create a channel to receive signals.
-	sigChan := make(chan os.Signal, 1)
+// func waitingToBeTerminate(device emu.Emu) {
+// 	// Create a channel to receive signals.
+// 	sigChan := make(chan os.Signal, 1)
 
-	// Notify the channel of specific signals.
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+// 	// Notify the channel of specific signals.
+// 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	fmt.Println("Program is running. Press Ctrl+C to interrupt.")
+// 	fmt.Println("Program is running. Press Ctrl+C to interrupt.")
 
-	// Block until a signal is received.
-	sig := <-sigChan
+// 	// Block until a signal is received.
+// 	sig := <-sigChan
 
-	// Handle the signal.
-	switch sig {
-	case syscall.SIGINT:
-		fmt.Println("SIGINT received. Exiting...")
-		device.Close()
-		os.Exit(0)
-	case syscall.SIGTERM:
-		fmt.Println("SIGTERM received. Exiting...")
-		device.Close()
-		os.Exit(0)
-	default:
-		fmt.Println("Unexpected signal received.")
-	}
-}
+// 	// Handle the signal.
+// 	switch sig {
+// 	case syscall.SIGINT:
+// 		fmt.Println("SIGINT received. Exiting...")
+// 		device.Close()
+// 		os.Exit(0)
+// 	case syscall.SIGTERM:
+// 		fmt.Println("SIGTERM received. Exiting...")
+// 		device.Close()
+// 		os.Exit(0)
+// 	default:
+// 		fmt.Println("Unexpected signal received.")
+// 	}
+// }
 
 func main() {
 	// Configure command-line flags

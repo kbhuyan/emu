@@ -173,21 +173,21 @@ var (
 		GET_CONN_STATUS: emuGetConnStatus,
 	}
 
-	cmdRspMap = map[emuCommandName]emuMessageName{
-		emuRestart:                      emuAck,
-		emuGetDeviceInfo:                emuDeviceInfo,
-		emuGetNetworkInfo:               emuNetworkInfo,
-		emuGetTime:                      emuTimeCluster,
-		emuGetConnStatus:                emuConnectionStatus,
-		emuGetMessage:                   emuMessageCluster,
-		emuGetFastPollStatus:            emuFastPollStatus,
-		emuGetCurrentSummationDelivered: emuCurrentSummationDelivered,
-		emuGetInstantaneousDemand:       emuInstantaneousDemand,
-		emuGetLocalAttributes:           emuAck,
-		emuGetPriceBlocks:               emuAck,
-		emuGetSchedule:                  emuAck,
-		emuGetProfileData:               emuAck,
-	}
+	// cmdRspMap = map[emuCommandName]emuMessageName{
+	// 	emuRestart:                      emuAck,
+	// 	emuGetDeviceInfo:                emuDeviceInfo,
+	// 	emuGetNetworkInfo:               emuNetworkInfo,
+	// 	emuGetTime:                      emuTimeCluster,
+	// 	emuGetConnStatus:                emuConnectionStatus,
+	// 	emuGetMessage:                   emuMessageCluster,
+	// 	emuGetFastPollStatus:            emuFastPollStatus,
+	// 	emuGetCurrentSummationDelivered: emuCurrentSummationDelivered,
+	// 	emuGetInstantaneousDemand:       emuInstantaneousDemand,
+	// 	emuGetLocalAttributes:           emuAck,
+	// 	emuGetPriceBlocks:               emuAck,
+	// 	emuGetSchedule:                  emuAck,
+	// 	emuGetProfileData:               emuAck,
+	// }
 
 	attribTypeMap = map[emuMessageAttribute]atrribType{
 		emuDeviceMacId:          STRING,

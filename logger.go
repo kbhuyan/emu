@@ -18,16 +18,16 @@ func init() {
 	initLog(logFile, LOG_ERROR)
 }
 
-func enableLogger(l *log.Logger) {
-	l.SetOutput(logFile)
-}
-func disableLogger(l *log.Logger) {
-	l.SetOutput(io.Discard)
-}
+// func enableLogger(l *log.Logger) {
+// 	l.SetOutput(logFile)
+// }
+// func disableLogger(l *log.Logger) {
+// 	l.SetOutput(io.Discard)
+// }
 
 func initLog(file io.Writer, l LogLevel) {
 	logFile = file
-	var debugFile, infoFile, warningFile, errorFile io.Writer = io.Discard, io.Discard, io.Discard, io.Discard
+	var debugFile, infoFile, warningFile, errorFile = io.Discard, io.Discard, io.Discard, io.Discard
 	switch l {
 	case LOG_ALL:
 		debugFile, infoFile, warningFile, errorFile = file, file, file, file
