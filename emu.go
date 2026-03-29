@@ -233,7 +233,10 @@ func (e *emuImpl) reader() {
 		default:
 			if reader.Buffered() == 0 {
 				if rp.state != RspReceiving && e.cmdState != nil {
-					e.sendCommand()
+					err := e.sendCommand()
+					if err != nil {
+						ErrorLogger.Printf("Send command failed: %v", err)
+					}
 				}
 			}
 			line, err := reader.ReadString('\n')
